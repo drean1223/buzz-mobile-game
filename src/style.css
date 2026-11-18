@@ -220,6 +220,10 @@ button {
   justify-content: space-between;
   align-items: center;
 }
+.title-icons {
+  display: flex;
+  gap: 8px;
+}
 .coin-pill {
   font-weight: 900;
   font-size: 17px;
@@ -905,6 +909,85 @@ button {
   width: 120px;
   height: 75px;
   margin: -6px auto -4px;
+}
+
+/* ---------- Missions ---------- */
+.missions-card {
+  background: linear-gradient(180deg, rgba(40, 22, 90, 0.96), rgba(20, 10, 50, 0.96));
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 26px;
+  padding: 18px 16px 16px;
+}
+.missions-card h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 900;
+}
+.mission-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mission {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.mission .m-label {
+  font-weight: 900;
+  font-size: 15px;
+}
+.mission .m-reward {
+  font-weight: 900;
+  font-size: 14px;
+  color: var(--gold);
+}
+.mission .m-bar {
+  grid-column: 1 / -1;
+  height: 8px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.mission .m-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #3fe0a2, #ffd23d);
+}
+.mission .m-count {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+.mission.done {
+  background: rgba(63, 224, 162, 0.16);
+}
+.mission.done .m-reward {
+  color: #3fe0a2;
+}
+.mission-bonus,
+.mission-streak {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+}
+.mission-streak {
+  color: #9fe8ff;
+}
+.res-mission {
+  white-space: pre-line;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 900;
+  color: #3fe0a2;
 }
 
 /* ---------- Toast ---------- */

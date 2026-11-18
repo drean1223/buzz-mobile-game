@@ -1,3 +1,5 @@
+import type { Mission } from './missions.ts';
+
 const KEY = 'hoshineko-save-v1';
 
 export interface Save {
@@ -17,6 +19,11 @@ export interface Save {
   tutorialDone: boolean;
   gachaCount: number;
   bestZone: number;
+  missionKey: string;
+  missions: Mission[];
+  missionAllClaimed: boolean;
+  streak: number;
+  lastLoginKey: string;
 }
 
 const defaults: Save = {
@@ -36,6 +43,11 @@ const defaults: Save = {
   tutorialDone: false,
   gachaCount: 0,
   bestZone: 0,
+  missionKey: '',
+  missions: [],
+  missionAllClaimed: false,
+  streak: 0,
+  lastLoginKey: '',
 };
 
 export function loadSave(): Save {
@@ -49,7 +61,7 @@ export function loadSave(): Save {
   } catch {
     /* storage unavailable: play without saving */
   }
-  return { ...defaults, owned: [...defaults.owned] };
+  return { ...defaults, owned: [...defaults.owned], missions: [] };
 }
 
 export function writeSave(s: Save): void {

@@ -44,7 +44,10 @@
       <section id="title" class="screen">
         <div class="title-top">
           <div id="title-coins" class="coin-pill"><span class="star">★</span><span>0</span></div>
-          <button id="title-sound" class="icon-btn" aria-label="サウンド切りかえ">🔊</button>
+          <div class="title-icons">
+            <button id="btn-share-game" class="icon-btn" aria-label="ゲームを友だちに教える">📣</button>
+            <button id="title-sound" class="icon-btn" aria-label="サウンド切りかえ">🔊</button>
+          </div>
         </div>
         <h1 class="logo"><span class="logo-1">ほしねこ</span><span class="logo-2">ジャンプ</span></h1>
         <p class="tagline">まわる星から星へ、タップでとべ！</p>
@@ -58,7 +61,7 @@
         <div class="tap-start">タップでスタート</div>
         <div class="title-bottom">
           <button id="btn-gacha" class="btn btn-sub"><span>🐱 ねこガチャ</span><i id="gacha-dot" class="dot hidden"></i></button>
-          <button id="btn-share-game" class="btn btn-sub">📣 ゲームを教える</button>
+          <button id="btn-missions" class="btn btn-sub"><span>📋 ミッション <b id="mission-count">0/3</b></span></button>
         </div>
       </section>
 
@@ -76,6 +79,7 @@
             <div id="res-rank-comment" class="res-rank-comment"></div>
           </div>
           <div id="res-next" class="res-next"></div>
+          <div id="res-mission" class="res-mission hidden"></div>
           <div class="res-stats">
             <div><b id="res-perfect">0</b><span>PERFECT</span></div>
             <div><b id="res-combo">0</b><span>最大コンボ</span></div>
@@ -124,6 +128,16 @@
             <button id="reveal-equip" class="btn btn-main">この子にする</button>
             <button id="reveal-close" class="btn btn-sub">とじる</button>
           </div>
+        </div>
+      </div>
+
+      <div id="missions" class="sheet hidden">
+        <div class="sheet-card missions-card">
+          <h2>きょうのミッション</h2>
+          <div id="mission-list" class="mission-list"></div>
+          <p id="mission-bonus" class="mission-bonus"></p>
+          <p id="mission-streak" class="mission-streak"></p>
+          <button id="missions-close" class="btn btn-sub">とじる</button>
         </div>
       </div>
 

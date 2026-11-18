@@ -14,6 +14,7 @@ import { Sound } from './app/audio.ts';
 import { loadSave, writeSave } from './app/storage.ts';
 import type { Save } from './app/storage.ts';
 import { rollGacha, GACHA_COST, DUPLICATE_REFUND } from './app/gacha.ts';
+import { missionsFor, missionLabel, applyRun, MISSION_REWARD, ALL_CLEAR_BONUS } from './app/missions.ts';
 import { xIntentUrl, lineUrl, baseUrl, makeShareCard, prepareCard, canShareFile, shareFile, shareText, challengeUrl, copyText, GAME_NAME, HASHTAG } from './app/share.ts';
 import type { RunResult, PreparedCard } from './app/share.ts';
 
@@ -81,6 +82,7 @@ class Game {
   private revealing = false;
   private revealSkin: Skin | null = null;
   private card: PreparedCard | null = null;
+  private runSkips = 0;
   private cardPromise: Promise<PreparedCard> | null = null;
 
   constructor() {
@@ -88,6 +90,7 @@ class Game {
     this.sound.sfxOn = this.save.sfx;
     this.sound.bgmOn = this.save.bgm;
     this.readUrl();
+    this.refreshDay();
     this.sim = new Sim(this.seedFor(), this.viewH);
     this.resize();
     this.bindUi();
@@ -130,6 +133,23 @@ class Game {
       const seed = parseInt(seedStr, 36);
       if (Number.isFinite(seed) && seed > 0) this.rival = { score: vs, seed, mode: 'endless' };
     }
+  }
+
+  /** New JST day: fresh missions, and keep the login streak going. */
+  private refreshDay(): void {
+    const sv = this.save;
+    const today = jstDateKey();
+    if (sv.missionKey !== today || !Array.isArray(sv.missions) || sv.missions.length === 0) {
+      sv.missionKey = today;
+      sv.missions = missionsFor(today);
+      sv.missionAllClaimed = false;
+    }
+    if (sv.lastLoginKey !== today) {
+      const yesterday = jstDateKey(Date.now() - 86_400_000);
+      sv.streak = sv.lastLoginKey === yesterday ? sv.streak + 1 : 1;
+      sv.lastLoginKey = today;
+    }
+    writeSave(sv);
   }
 
   private seedFor(): number {
@@ -201,6 +221,11 @@ class Game {
     $('btn-share-line').addEventListener('click', () => this.sound.click());
     $('btn-share-game').addEventListener('click', () => void this.shareGame());
     $('btn-gacha').addEventListener('click', () => this.openGacha());
+    $('btn-missions').addEventListener('click', () => this.openMissions());
+    $('missions-close').addEventListener('click', () => {
+      this.sound.click();
+      $('missions').classList.add('hidden');
+    });
     $('btn-res-gacha').addEventListener('click', () => this.openGacha());
     $('gacha-close').addEventListener('click', () => this.closeGacha());
     $('gacha-pull').addEventListener('click', () => this.pullGacha());
@@ -227,14 +252,15 @@ class Game {
   private onPointer(e: PointerEvent): void {
     const t = e.target as HTMLElement;
     this.sound.unlock();
-    if (t.closest('button, a, #gacha, #reveal, #result, #sheet')) return;
+    if (t.closest('button, a, #gacha, #reveal, #result, #sheet, #missions')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     this.onAction();
   }
 
   private onAction(): void {
     this.sound.unlock();
-    if (!$('gacha').classList.contains('hidden') || !$('sheet').classList.contains('hidden') || this.revealing) return;
+    for (const id of ['gacha', 'sheet', 'missions']) if (!$(id).classList.contains('hidden')) return;
+    if (this.revealing) return;
     if (this.state === 'title') this.startRun(false);
     else if (this.state === 'play') this.tryJump();
     else if (this.state === 'over' && this.resultShown && this.overT > 1.6) this.retry();
@@ -257,7 +283,9 @@ class Game {
   }
 
   private startRun(fresh: boolean): void {
+    if (jstDateKey() !== this.save.missionKey) this.refreshDay();
     if (fresh) this.sim = new Sim(this.seedFor(), this.viewH);
+    this.runSkips = 0;
     this.state = 'play';
     this.fx = new FX();
     this.scene.setZone(0, true);
@@ -420,6 +448,7 @@ class Game {
           fx.text(e.x, e.y - 74, e.acc > 0.84 ? 'ギリギリ！' : 'GOOD', e.acc > 0.84 ? '#ffb0b0' : '#bfe8ff', 20, 0.8);
         }
         if (e.gained >= 2) {
+          this.runSkips++;
           fx.text(e.x, e.y - 112, `${e.gained}コとばし！`, '#7af0ff', 26, 1.2);
           fx.burst(e.x, e.y, 20, ['#7af0ff', '#ffffff'], 320, { kind: 'spark', size: 3 });
         }
@@ -629,6 +658,7 @@ class Game {
       rb.append(b, ' をこえろ！（おなじコース）');
       rb.classList.remove('hidden');
     } else rb.classList.add('hidden');
+    $('mission-count').textContent = `${this.save.missions.filter((m) => m.done).length}/${this.save.missions.length}`;
     const can = this.save.coins >= GACHA_COST;
     $('gacha-dot').classList.toggle('hidden', !can);
     $('gacha-dot-2').classList.toggle('hidden', !can);
@@ -661,9 +691,25 @@ class Game {
     let dailyBonus = 0;
     if (sv.lastBonusKey !== today) {
       sv.lastBonusKey = today;
-      dailyBonus = 10;
+      dailyBonus = 10 + 5 * Math.min(Math.max(sv.streak, 1) - 1, 6);
     }
-    const earned = s.coins + scoreBonus + dailyBonus;
+    const newly = applyRun(sv.missions, {
+      score: s.score,
+      perfects: s.perfects,
+      coins: s.coins,
+      maxCombo: s.maxCombo,
+      zone: s.zone,
+      skips: this.runSkips,
+      daily: this.mode === 'daily',
+    });
+    let missionReward = newly.length * MISSION_REWARD;
+    const allDone = sv.missions.every((m) => m.done);
+    const allClear = allDone && !sv.missionAllClaimed;
+    if (allClear) {
+      sv.missionAllClaimed = true;
+      missionReward += ALL_CLEAR_BONUS;
+    }
+    const earned = s.coins + scoreBonus + dailyBonus + missionReward;
     sv.coins += earned;
     writeSave(sv);
 
@@ -706,7 +752,16 @@ class Game {
       if (this.lastResult === res) this.card = c;
       return c;
     });
-    if (dailyBonus) setTimeout(() => this.toast(`ログインボーナス ★+${dailyBonus}`), 1400);
+    const lines: string[] = [];
+    if (newly.length) {
+      let txt = newly.length === 1 ? `ミッション達成！「${missionLabel(newly[0])}」★+${MISSION_REWARD}` : `ミッション${newly.length}つ達成！★+${newly.length * MISSION_REWARD}`;
+      if (allClear) txt += ` ／ ぜんぶクリア ★+${ALL_CLEAR_BONUS}`;
+      lines.push(txt);
+    }
+    if (dailyBonus) lines.push(sv.streak > 1 ? `🔥 連続ログイン${sv.streak}日目！ ★+${dailyBonus}` : `🎁 ログインボーナス ★+${dailyBonus}`);
+    const rm = $('res-mission');
+    rm.textContent = lines.join('\n');
+    rm.classList.toggle('hidden', lines.length === 0);
   }
 
   private showResult(): void {
@@ -797,6 +852,38 @@ class Game {
       }
     }
     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank', 'noopener');
+  }
+
+  // ---------------------------------------------------------------- missions
+
+  private openMissions(): void {
+    this.sound.click();
+    this.refreshDay();
+    const list = $('mission-list');
+    list.innerHTML = '';
+    for (const m of this.save.missions) {
+      const row = document.createElement('div');
+      row.className = `mission${m.done ? ' done' : ''}`;
+      const label = document.createElement('div');
+      label.className = 'm-label';
+      label.textContent = missionLabel(m);
+      const reward = document.createElement('div');
+      reward.className = 'm-reward';
+      reward.textContent = m.done ? 'クリア！' : `★${MISSION_REWARD}`;
+      const bar = document.createElement('div');
+      bar.className = 'm-bar';
+      const fill = document.createElement('i');
+      fill.style.width = `${Math.round((100 * Math.min(m.progress, m.target)) / m.target)}%`;
+      bar.append(fill);
+      const count = document.createElement('div');
+      count.className = 'm-count';
+      count.textContent = `${Math.min(m.progress, m.target)} / ${m.target}`;
+      row.append(label, reward, bar, count);
+      list.append(row);
+    }
+    $('mission-bonus').textContent = this.save.missionAllClaimed ? 'ぜんぶクリア！またあしたね' : `ぜんぶクリアで さらに ★+${ALL_CLEAR_BONUS}`;
+    $('mission-streak').textContent = `🔥 連続ログイン ${Math.max(1, this.save.streak)}日目`;
+    $('missions').classList.remove('hidden');
   }
 
   // ---------------------------------------------------------------- gacha
