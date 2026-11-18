@@ -19,6 +19,8 @@ export interface RunResult {
   seed: number;
   dailyKey: string;
   skin: Skin;
+  /** Daily ranking position of the player's best today, once the server answered. */
+  world?: { rank: number; total: number };
 }
 
 /** Public URL of the game (set VITE_PUBLIC_URL at build time for builds hosted elsewhere). */
@@ -50,6 +52,7 @@ export function shareText(r: RunResult): string {
   const lines = [
     `🐱${GAME_NAME} ${head}`,
     `スコア ${r.score}${r.isRecord ? ' 🏆自己ベスト！' : ''}`,
+    ...(r.world ? [`🏆全国${r.world.rank}位（${r.world.total}人中）`] : []),
     `称号「${rank.name}」`,
     zoneBar(r.zone),
     `⭐PERFECT×${r.perfects} 🔥最大${r.maxCombo}コンボ`,
@@ -181,6 +184,24 @@ export async function makeShareCard(r: RunResult): Promise<HTMLCanvasElement> {
     ctx.font = `900 40px ${FONT}`;
     ctx.fillStyle = '#ffffff';
     ctx.fillText('自己ベスト！', 0, 2);
+    ctx.restore();
+  }
+
+  if (r.world) {
+    ctx.save();
+    ctx.translate(cw / 2 - 300, 300);
+    ctx.rotate(-0.2);
+    roundRect(ctx, -150, -52, 300, 104, 40);
+    ctx.fillStyle = '#ffc93a';
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+    ctx.fillStyle = '#4a2600';
+    ctx.font = `900 42px ${FONT}`;
+    ctx.fillText(`全国${r.world.rank}位`, 0, -10);
+    ctx.font = `700 26px ${FONT}`;
+    ctx.fillText(`${r.world.total}人中`, 0, 30);
     ctx.restore();
   }
 

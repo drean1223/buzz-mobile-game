@@ -1,4 +1,5 @@
 import type { Mission } from './missions.ts';
+import type { Replay } from '../core/replay.ts';
 
 const KEY = 'hoshineko-save-v1';
 
@@ -26,6 +27,14 @@ export interface Save {
   missionAllClaimed: boolean;
   streak: number;
   lastLoginKey: string;
+  /** Anonymous id for the daily ranking (random, not tied to the person). */
+  playerId: string;
+  /** Name shown in the daily ranking. */
+  name: string;
+  /** Best daily replay already sent to the ranking, for that JST day. */
+  rankKey: string;
+  rankScore: number;
+  rankReplay: Replay | null;
 }
 
 const defaults: Save = {
@@ -52,6 +61,11 @@ const defaults: Save = {
   missionAllClaimed: false,
   streak: 0,
   lastLoginKey: '',
+  playerId: '',
+  name: '',
+  rankKey: '',
+  rankScore: -1,
+  rankReplay: null,
 };
 
 export function loadSave(): Save {

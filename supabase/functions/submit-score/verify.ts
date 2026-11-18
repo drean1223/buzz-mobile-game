@@ -16,11 +16,14 @@ const PER_SEC = Math.round(1 / STEP);
 
 const int = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 
+/** Control, zero-width and bidi characters are dropped from names. */
+const hidden = (c: number) => c < 0x20 || (c >= 0x7f && c <= 0x9f) || (c >= 0x200b && c <= 0x200f) || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2060 && c <= 0x206f) || c === 0xfeff;
+
 export function cleanName(n: unknown): string | null {
   if (typeof n !== 'string') return null;
-  const s = n
-    .normalize('NFKC')
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '')
+  const s = [...n.normalize('NFKC')]
+    .filter((ch) => !hidden(ch.codePointAt(0) ?? 0))
+    .join('')
     .replace(/\s+/g, ' ')
     .trim();
   const chars = [...s].slice(0, 12);

@@ -1077,3 +1077,140 @@ button {
     font-size: 12px;
   }
 }
+
+/* ---------------------------------------------------------------- ranking */
+.title-rank,
+.res-world {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px auto 0;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffe17a, #ffb938);
+  color: #4a2600;
+  font: 900 15px var(--font);
+  box-shadow: 0 3px 0 #c97a10, 0 6px 14px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.title-rank b,
+.res-world b {
+  font-size: 19px;
+}
+.title-rank small,
+.res-world small {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.res-world.wait {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: none;
+}
+#ranking {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ranking-card {
+  width: min(100%, 420px);
+  min-width: 0;
+  max-height: 100%;
+  gap: 8px;
+  background: linear-gradient(180deg, rgba(40, 22, 90, 0.97), rgba(20, 10, 50, 0.97));
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 26px;
+  padding: 18px 16px 16px;
+}
+.ranking-card > * {
+  align-self: stretch;
+  text-align: center;
+}
+.ranking-card h2 {
+  margin: 0;
+}
+.ranking-sub {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+.ranking-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  min-height: 120px;
+  max-height: 46vh;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.ranking-list li {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.ranking-list li.me {
+  background: rgba(255, 216, 77, 0.22);
+}
+.ranking-list .r {
+  font-weight: 900;
+  text-align: center;
+}
+.ranking-list .n {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.ranking-list .s {
+  font-weight: 900;
+  color: #ffe45c;
+}
+.ranking-list .empty {
+  display: block;
+  padding: 24px 12px;
+  text-align: center;
+  opacity: 0.8;
+}
+.ranking-me {
+  font-size: 14px;
+  font-weight: 700;
+}
+.ranking-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.ranking-name input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font: 700 16px var(--font);
+}
+.ranking-name label {
+  flex: none;
+  font-weight: 700;
+}
+.ranking-name .btn {
+  flex: none;
+  width: auto;
+  min-height: 42px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+.ranking-card .btn-main {
+  min-height: 58px;
+  font-size: 21px;
+}
+.ranking-card #ranking-close {
+  min-height: 46px;
+}

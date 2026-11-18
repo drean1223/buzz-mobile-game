@@ -45,6 +45,7 @@
         <div class="title-top">
           <div id="title-coins" class="coin-pill"><span class="star">★</span><span>0</span></div>
           <div class="title-icons">
+            <button id="btn-ranking" class="icon-btn" aria-label="きょうのランキング">🏆</button>
             <button id="btn-share-game" class="icon-btn" aria-label="ゲームを友だちに教える">📣</button>
             <button id="title-sound" class="icon-btn" aria-label="サウンド切りかえ">🔊</button>
           </div>
@@ -57,6 +58,7 @@
           <button class="tab" data-mode="daily" role="tab">きょうのステージ<small id="daily-no"></small></button>
         </div>
         <div id="title-best" class="title-best">BEST 0</div>
+        <button id="title-rank" class="title-rank hidden"></button>
         <div class="spacer"></div>
         <div class="tap-start">タップでスタート</div>
         <div class="title-bottom">
@@ -73,6 +75,7 @@
           <div id="res-score" class="res-score">0</div>
           <div id="res-record" class="res-record hidden">自己ベスト更新！</div>
           <div id="res-best" class="res-best">BEST 0</div>
+          <button id="res-world" class="res-world hidden"></button>
           <div class="res-rank">
             <div class="res-rank-label">称号</div>
             <div id="res-rank-name" class="res-rank-name"></div>
@@ -138,6 +141,22 @@
           <p id="mission-bonus" class="mission-bonus"></p>
           <p id="mission-streak" class="mission-streak"></p>
           <button id="missions-close" class="btn btn-sub">とじる</button>
+        </div>
+      </div>
+
+      <div id="ranking" class="sheet hidden">
+        <div class="sheet-card ranking-card">
+          <h2>🏆 きょうのランキング</h2>
+          <p id="ranking-sub" class="ranking-sub"></p>
+          <ol id="ranking-list" class="ranking-list"></ol>
+          <div id="ranking-me" class="ranking-me"></div>
+          <div class="ranking-name">
+            <label for="ranking-name">なまえ</label>
+            <input id="ranking-name" autocomplete="off" enterkeyhint="done" spellcheck="false" />
+            <button id="ranking-save" class="btn btn-sub">変更</button>
+          </div>
+          <button id="ranking-play" class="btn btn-main">きょうのステージで挑戦！</button>
+          <button id="ranking-close" class="btn btn-sub">とじる</button>
         </div>
       </div>
 

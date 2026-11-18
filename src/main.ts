@@ -19,6 +19,8 @@ import { rollGacha, GACHA_COST, DUPLICATE_REFUND } from './app/gacha.ts';
 import { missionsFor, missionLabel, applyRun, MISSION_REWARD, ALL_CLEAR_BONUS } from './app/missions.ts';
 import { xIntentUrl, lineUrl, baseUrl, makeShareCard, prepareCard, canShareFile, shareFile, shareText, challengeUrl, copyText, GAME_NAME, HASHTAG } from './app/share.ts';
 import type { RunResult, PreparedCard } from './app/share.ts';
+import { submitDaily, dailyTop, dailyMe, trackSession, uuid, visitSource } from './app/net.ts';
+import type { SessionStats, MyRank } from './app/net.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -82,6 +84,11 @@ class Game {
   /** Sim step at which the current run left the title screen (for replays). */
   private runStart = 0;
   lastReplay: Replay | null = null;
+  /** Today's daily ranking position, once known. */
+  private myRank: (MyRank & { day: string }) | null = null;
+  private rankAskedAt = 0;
+  private session!: SessionStats;
+  private sessionT0 = performance.now();
   private botErr = 0;
   private botPlanet = -1;
   private revealing = false;
@@ -91,6 +98,7 @@ class Game {
   private cardPromise: Promise<PreparedCard> | null = null;
 
   constructor() {
+    this.initPlayer();
     this.skin = skinById(this.save.skin);
     this.sound.sfxOn = this.save.sfx;
     this.sound.bgmOn = this.save.bgm;
@@ -104,7 +112,10 @@ class Game {
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 200));
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this.sound.suspend();
+      if (document.hidden) {
+        this.sound.suspend();
+        this.flushSession();
+      }
     });
     requestAnimationFrame((t) => {
       this.last = t;
@@ -120,6 +131,37 @@ class Game {
   }
 
   // ---------------------------------------------------------------- setup
+
+  /** Anonymous ranking id + display name, and this visit's play stats. */
+  private initPlayer(): void {
+    const sv = this.save;
+    const firstVisit = sv.plays === 0 && !sv.playerId;
+    if (!sv.playerId) sv.playerId = uuid();
+    if (!sv.name) sv.name = `ねこ${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`;
+    writeSave(sv);
+    this.session = {
+      id: uuid(),
+      player_id: sv.playerId,
+      first_visit: firstVisit,
+      source: visitSource(),
+      lang: (navigator.language || '').slice(0, 12),
+      mobile: typeof matchMedia === 'function' ? matchMedia('(pointer: coarse)').matches : true,
+      plays: 0,
+      daily_plays: 0,
+      best: 0,
+      first_score: null,
+      total_score: 0,
+      shares: 0,
+      gacha: 0,
+      seconds: 0,
+    };
+  }
+
+  private flushSession(): void {
+    if (this.session.plays === 0 && this.session.shares === 0) return;
+    this.session.seconds = Math.round((performance.now() - this.sessionT0) / 1000);
+    trackSession(this.session);
+  }
 
   private readUrl(): void {
     const q = new URLSearchParams(location.search);
@@ -191,7 +233,7 @@ class Game {
   private bindUi(): void {
     this.app.addEventListener('pointerdown', (e) => this.onPointer(e));
     window.addEventListener('keydown', (e) => {
-      if (e.repeat) return;
+      if (e.repeat || (e.target as HTMLElement | null)?.closest?.('input')) return;
       if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowUp') {
         e.preventDefault();
         this.onAction();
@@ -200,7 +242,7 @@ class Game {
     // Stop iOS double-tap zoom / long-press menus inside the game.
     this.app.addEventListener('touchend', (e) => {
       const t = e.target as HTMLElement;
-      if (!t.closest('button, #gacha')) e.preventDefault();
+      if (!t.closest('button, a, input, #gacha, #ranking')) e.preventDefault();
     }, { passive: false });
     this.app.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -227,8 +269,27 @@ class Game {
     $('btn-retry').addEventListener('click', () => this.retry());
     $('btn-home').addEventListener('click', () => this.goHome());
     $('btn-share-img').addEventListener('click', () => void this.shareImg());
-    $('btn-share-x').addEventListener('click', () => this.sound.click());
-    $('btn-share-line').addEventListener('click', () => this.sound.click());
+    const shared = () => {
+      this.sound.click();
+      this.session.shares++;
+    };
+    $('btn-share-x').addEventListener('click', shared);
+    $('btn-share-line').addEventListener('click', shared);
+    for (const id of ['btn-ranking', 'title-rank', 'res-world']) $(id).addEventListener('click', () => void this.openRanking());
+    $('ranking-close').addEventListener('click', () => {
+      this.sound.click();
+      $('ranking').classList.add('hidden');
+    });
+    $('ranking-save').addEventListener('click', () => void this.rename());
+    $('ranking-name').addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') void this.rename();
+    });
+    $('ranking-play').addEventListener('click', () => {
+      this.sound.click();
+      $('ranking').classList.add('hidden');
+      if (this.state !== 'title') this.goHome();
+      this.setMode('daily');
+    });
     $('btn-share-game').addEventListener('click', () => void this.shareGame());
     $('btn-gacha').addEventListener('click', () => this.openGacha());
     $('btn-missions').addEventListener('click', () => this.openMissions());
@@ -262,14 +323,14 @@ class Game {
   private onPointer(e: PointerEvent): void {
     const t = e.target as HTMLElement;
     this.sound.unlock();
-    if (t.closest('button, a, #gacha, #reveal, #result, #sheet, #missions')) return;
+    if (t.closest('button, a, input, #gacha, #reveal, #result, #sheet, #missions, #ranking')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     this.onAction();
   }
 
   private onAction(): void {
     this.sound.unlock();
-    for (const id of ['gacha', 'sheet', 'missions']) if (!$(id).classList.contains('hidden')) return;
+    for (const id of ['gacha', 'sheet', 'missions', 'ranking']) if (!$(id).classList.contains('hidden')) return;
     if (this.revealing) return;
     if (this.state === 'title') this.startRun(false);
     else if (this.state === 'play') this.tryJump();
@@ -294,7 +355,8 @@ class Game {
 
   private startRun(fresh: boolean): void {
     if (jstDateKey() !== this.save.missionKey) this.refreshDay();
-    if (fresh) this.sim = new Sim(this.seedFor(), this.viewH);
+    // A replay starts with the title-screen idle steps; keep that part short.
+    if (fresh || this.sim.tick > 240 * 120) this.sim = new Sim(this.seedFor(), this.viewH);
     this.runStart = this.sim.tick;
     this.runSkips = 0;
     this.state = 'play';
@@ -681,6 +743,7 @@ class Game {
       rb.classList.remove('hidden');
     } else rb.classList.add('hidden');
     $('mission-count').textContent = `${this.save.missions.filter((m) => m.done).length}/${this.save.missions.length}`;
+    this.refreshRankChip();
     const can = this.save.coins >= GACHA_COST;
     $('gacha-dot').classList.toggle('hidden', !can);
     $('gacha-dot-2').classList.toggle('hidden', !can);
@@ -739,6 +802,14 @@ class Game {
     sv.coins += earned;
     writeSave(sv);
 
+    const ss = this.session;
+    ss.plays++;
+    if (this.mode === 'daily') ss.daily_plays++;
+    ss.best = Math.max(ss.best, s.score);
+    if (ss.first_score === null) ss.first_score = s.score;
+    ss.total_score += s.score;
+    this.flushSession();
+
     this.lastResult = {
       score: s.score,
       best: Math.max(prevBest, s.score),
@@ -788,6 +859,143 @@ class Game {
     const rm = $('res-mission');
     rm.textContent = lines.join('\n');
     rm.classList.toggle('hidden', lines.length === 0);
+    $('res-world').classList.toggle('hidden', this.mode !== 'daily');
+    if (this.mode === 'daily') void this.rankAfterRun(this.lastResult, this.lastReplay);
+  }
+
+  // ---------------------------------------------------------------- daily ranking
+
+  private worldLabel(r: { rank: number; total: number }): string {
+    return `🏆 全国 <b>${r.rank}</b>位 <small>/ ${r.total}人</small> ›`;
+  }
+
+  /** Send a new daily best to the ranking (or just look up our rank) after a daily run. */
+  private async rankAfterRun(res: RunResult, replay: Replay | null): Promise<void> {
+    const sv = this.save;
+    const day = res.dailyKey;
+    const el = $('res-world');
+    el.classList.add('wait');
+    el.textContent = '🏆 ランキングを確認中…';
+    if (sv.rankKey !== day) {
+      sv.rankKey = day;
+      sv.rankScore = -1;
+      sv.rankReplay = null;
+    }
+    let r: MyRank | null;
+    if (replay && res.score > sv.rankScore) {
+      const sub = await submitDaily(day, sv.playerId, sv.name, res.skin.id, replay);
+      if (sub && sv.rankKey === day) {
+        // Keep a replay the server accepted, so a rename can be sent without a new run.
+        if (sub.improved || !sv.rankReplay) sv.rankReplay = replay;
+        sv.rankScore = Math.max(sv.rankScore, sub.score);
+        writeSave(sv);
+      }
+      r = sub;
+    } else {
+      r = await dailyMe(day, sv.playerId);
+    }
+    if (this.lastResult !== res) return;
+    if (!r) {
+      el.textContent = '🏆 ランキングに つながりませんでした';
+      return;
+    }
+    this.myRank = { ...r, day };
+    this.rankAskedAt = Date.now();
+    el.classList.remove('wait');
+    el.innerHTML = this.worldLabel(r);
+    // Put the rank in the share text and on the card.
+    res.world = { rank: r.rank, total: r.total };
+    for (const id of ['btn-share-x', 'sheet-x']) $<HTMLAnchorElement>(id).href = xIntentUrl(res);
+    for (const id of ['btn-share-line', 'sheet-line']) $<HTMLAnchorElement>(id).href = lineUrl(res);
+    this.card = null;
+    this.cardPromise = prepareCard(res).then((c) => {
+      if (this.lastResult === res) this.card = c;
+      return c;
+    });
+  }
+
+  /** Title chip: today's rank (looked up at most once a minute). */
+  private refreshRankChip(): void {
+    const chip = $('title-rank');
+    const day = jstDateKey();
+    if (this.mode !== 'daily') {
+      chip.classList.add('hidden');
+      return;
+    }
+    chip.classList.remove('hidden');
+    const mine = this.myRank && this.myRank.day === day ? this.myRank : null;
+    chip.innerHTML = mine ? this.worldLabel(mine) : '🏆 きょうのランキング ›';
+    if (this.save.rankKey === day && this.save.rankScore >= 0 && Date.now() - this.rankAskedAt > 60_000) {
+      this.rankAskedAt = Date.now();
+      void dailyMe(day, this.save.playerId).then((r) => {
+        if (!r) return;
+        this.myRank = { ...r, day };
+        if (this.state === 'title') this.refreshRankChip();
+      });
+    }
+  }
+
+  private async openRanking(): Promise<void> {
+    this.sound.unlock();
+    this.sound.click();
+    const day = jstDateKey();
+    $('ranking-sub').textContent = `ステージ #${dailyNumber(day)}（${shortDate(day)}）・ 毎日0時に入れかわるよ`;
+    $<HTMLInputElement>('ranking-name').value = this.save.name;
+    const list = $('ranking-list');
+    list.innerHTML = '<li class="empty">よみこみ中…</li>';
+    $('ranking-me').textContent = '';
+    $('ranking').classList.remove('hidden');
+    const [top, me] = await Promise.all([dailyTop(day, 50), dailyMe(day, this.save.playerId)]);
+    if (!top) {
+      list.innerHTML = '<li class="empty">ランキングに つながりませんでした。<br>電波のいいところで もう一度ためしてね</li>';
+      return;
+    }
+    list.innerHTML = '';
+    if (!top.length) list.innerHTML = '<li class="empty">まだだれもいません。<br>一番乗りのチャンス！</li>';
+    const medal = ['🥇', '🥈', '🥉'];
+    for (const row of top) {
+      const li = document.createElement('li');
+      const isMe = !!me && row.rank === me.rank && row.score === me.score && row.name === this.save.name;
+      if (isMe) li.className = 'me';
+      const r = document.createElement('span');
+      r.className = 'r';
+      r.textContent = medal[row.rank - 1] ?? String(row.rank);
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = row.name;
+      const sc = document.createElement('span');
+      sc.className = 's';
+      sc.textContent = String(row.score);
+      li.append(r, n, sc);
+      list.append(li);
+    }
+    if (me) {
+      this.myRank = { ...me, day };
+      $('ranking-me').textContent = `あなたは ${me.rank}位（${me.total}人中）・ ベスト ${me.score}`;
+    } else {
+      $('ranking-me').textContent = 'きょうのステージを遊ぶと、ランキングにのるよ';
+    }
+  }
+
+  private async rename(): Promise<void> {
+    const input = $<HTMLInputElement>('ranking-name');
+    const name = [...input.value.replace(/\s+/g, ' ').trim()].slice(0, 12).join('');
+    if (!name) {
+      input.value = this.save.name;
+      return;
+    }
+    input.blur();
+    if (name === this.save.name) return;
+    this.sound.click();
+    this.save.name = name;
+    writeSave(this.save);
+    this.toast('なまえを変えたよ');
+    // Re-send today's best so the new name shows up right away.
+    const sv = this.save;
+    if (sv.rankReplay && sv.rankKey === jstDateKey()) {
+      await submitDaily(sv.rankKey, sv.playerId, name, this.skin.id, sv.rankReplay);
+      if (!$('ranking').classList.contains('hidden')) void this.openRanking();
+    }
   }
 
   private showResult(): void {
@@ -830,6 +1038,7 @@ class Game {
     const r = this.lastResult;
     if (!r) return;
     this.sound.click();
+    this.session.shares++;
     const ready = this.card;
     if (ready && canShareFile(ready.file)) {
       // Call share synchronously inside the tap so mobile browsers allow it.
@@ -995,6 +1204,7 @@ class Game {
     const machine = document.querySelector('.machine')!;
     machine.classList.add('shake');
     this.sound.gacha();
+    this.session.gacha++;
     setTimeout(() => {
       machine.classList.remove('shake');
       const rv = $('reveal');
