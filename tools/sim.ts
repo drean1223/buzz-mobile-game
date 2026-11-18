@@ -4,7 +4,7 @@
  *
  *   node tools/sim.ts [sigma=0.05] [runs=300]
  */
-import { Sim } from '../src/core/sim.ts';
+import { Sim, STEP } from '../src/core/sim.ts';
 import type { DeathCause } from '../src/core/sim.ts';
 import { CAT_R, CAT_SPEED, TAU, wrapAngle } from '../src/core/constants.ts';
 import type { Planet } from '../src/core/world.ts';
@@ -47,7 +47,7 @@ function hazardBlocks(sim: Sim, from: Planet, dirA: number, target: Planet): boo
 
 export function runBot(seed: number, sigma: number, maxTime = 900) {
   const sim = new Sim(seed, 700);
-  const dt = 1 / 60;
+  const dt = STEP;
   let eps = gauss() * sigma;
   let prevTta = Infinity;
   let pressAt = -1;
@@ -93,7 +93,7 @@ export function runBot(seed: number, sigma: number, maxTime = 900) {
         }
       }
     }
-    sim.update(dt);
+    sim.step();
     sim.events.length = 0;
   }
   return { fallbacks: sim.course.fallbacks, score: sim.score, idx: sim.maxIdx, cause: sim.cause, time: sim.time, perfects: sim.perfects, maxCombo: sim.maxCombo, coins: sim.coins, jumps: sim.jumps };

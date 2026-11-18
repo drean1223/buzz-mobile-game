@@ -1,5 +1,6 @@
 import { RNG } from './rng.ts';
 import { W, CAT_R, TAU, FUSE_FROM, clamp, lerp, wrapAngle } from './constants.ts';
+import { dcos, dsin, dhypot, datan2, dasin } from './dmath.ts';
 
 export type PlanetKind = 'start' | 'normal' | 'moving' | 'fast' | 'wobble';
 
@@ -52,7 +53,8 @@ export interface Coin {
 /** 0 → 1 difficulty curve by planet index. */
 export function difficulty(i: number): number {
   const x = clamp((i - 3) / 120, 0, 1);
-  return 1 - Math.pow(1 - x, 1.45);
+  // (1 - x)^1.5 with sqrt only: pow() is not bit-exact across engines.
+  return 1 - (1 - x) * Math.sqrt(1 - x);
 }
 
 function flipSpin(p: Planet): void {
@@ -102,17 +104,17 @@ export class Course {
   update(dt: number, time: number): void {
     for (const p of this.planets) {
       if (p.kind === 'wobble') {
-        p.omega = p.omega0 * (1 + 0.62 * Math.sin(time * 2.1 + p.wobblePhase));
+        p.omega = p.omega0 * (1 + 0.62 * dsin(time * 2.1 + p.wobblePhase));
       }
       p.angle += p.omega * dt;
       if (p.kind === 'moving') {
-        p.x = p.baseX + p.moveAmp * Math.sin((TAU * time) / p.movePeriod + p.movePhase);
+        p.x = p.baseX + p.moveAmp * dsin((TAU * time) / p.movePeriod + p.movePhase);
       }
       const h = p.hazard;
       if (h) {
         h.angle += h.omega * dt;
-        h.x = p.x + Math.cos(h.angle) * h.orbitR;
-        h.y = p.y + Math.sin(h.angle) * h.orbitR;
+        h.x = p.x + dcos(h.angle) * h.orbitR;
+        h.y = p.y + dsin(h.angle) * h.orbitR;
       }
     }
   }
@@ -173,7 +175,7 @@ export class Course {
       // the farther / smaller the target, the shorter the window.
       const prevSpin = Math.abs(prev.omega0) * (prev.kind === 'wobble' ? 1.45 : 1);
       const minWin = i <= 5 ? 0.55 : lerp(0.42, 0.12, d);
-      const sinHalf = Math.sin(Math.min(1.2, (minWin * prevSpin) / 2));
+      const sinHalf = dsin(Math.min(1.2, (minWin * prevSpin) / 2));
       const minGap = 46;
       if ((r + CAT_R) / sinHalf < prev.r + r + minGap) {
         r = (prev.r + minGap - CAT_R / sinHalf) / (1 / sinHalf - 1);
@@ -197,11 +199,11 @@ export class Course {
         x = clamp(x, minX, maxX);
         dx = x - prev.baseX;
       }
-      const dy = Math.sqrt(Math.max(dist * dist - dx * dx, (dist * 0.5) ** 2));
+      const dy = Math.sqrt(Math.max(dist * dist - dx * dx, (dist * 0.5) * (dist * 0.5)));
       const y = prev.y - dy;
-      dist = Math.hypot(dx, dy);
+      dist = dhypot(dx, dy);
 
-      const win = (2 * Math.asin(Math.min(1, (r + CAT_R) / dist))) / prevSpin;
+      const win = (2 * dasin(Math.min(1, (r + CAT_R) / dist))) / prevSpin;
       if (win < minWin * 0.98) continue;
 
       // Keep clear of nearby planets (including their movement range).
@@ -210,7 +212,7 @@ export class Course {
         const q = this.planets[k];
         // Closest the two can get while sliding horizontally.
         const hd = Math.max(0, Math.abs(q.baseX - x) - q.moveAmp - moveAmp);
-        if (Math.hypot(hd, q.y - y) < q.r + r + CAT_R * 2 + 12) {
+        if (dhypot(hd, q.y - y) < q.r + r + CAT_R * 2 + 12) {
           ok = false;
           break;
         }
@@ -224,8 +226,8 @@ export class Course {
       // Pick the previous planet's spin direction so that, after landing there, the cat
       // usually swings toward this planet the short way round. Keeps the pace snappy.
       const pp = this.planets.length >= 2 ? this.planets[this.planets.length - 2] : null;
-      const landA = pp ? Math.atan2(pp.y - prev.y, pp.baseX - prev.baseX) : -Math.PI / 2;
-      const delta = wrapAngle(Math.atan2(y - prev.y, x - prev.baseX) - landA);
+      const landA = pp ? datan2(pp.y - prev.y, pp.baseX - prev.baseX) : -Math.PI / 2;
+      const delta = wrapAngle(datan2(y - prev.y, x - prev.baseX) - landA);
       const shortSign = delta >= 0 ? 1 : -1;
       const want = rng.chance(i <= 6 ? 0.92 : lerp(0.8, 0.6, d)) ? shortSign : -shortSign;
       if (Math.sign(prev.omega0) !== want) flipSpin(prev);

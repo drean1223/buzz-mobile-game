@@ -4,6 +4,8 @@ import type { SimEvent } from './core/sim.ts';
 import { W, CAT_R, TAU, clamp, wrapAngle } from './core/constants.ts';
 import { ZONES, rankFor, nextRank } from './core/zones.ts';
 import { randomSeed } from './core/rng.ts';
+import { makeReplay } from './core/replay.ts';
+import type { Replay } from './core/replay.ts';
 import { jstDateKey, dailyNumber, dailySeed, shortDate } from './core/daily.ts';
 import { Scene } from './render/scene.ts';
 import type { CatLook } from './render/scene.ts';
@@ -77,6 +79,9 @@ class Game {
   private hudScore = -1;
   private hudSubText = '';
   private bot = false;
+  /** Sim step at which the current run left the title screen (for replays). */
+  private runStart = 0;
+  lastReplay: Replay | null = null;
   private botErr = 0;
   private botPlanet = -1;
   private revealing = false;
@@ -290,6 +295,7 @@ class Game {
   private startRun(fresh: boolean): void {
     if (jstDateKey() !== this.save.missionKey) this.refreshDay();
     if (fresh) this.sim = new Sim(this.seedFor(), this.viewH);
+    this.runStart = this.sim.tick;
     this.runSkips = 0;
     this.state = 'play';
     this.fx = new FX();
@@ -360,11 +366,9 @@ class Game {
     if (this.bot && this.state === 'title' && this.time > 1.2) this.startRun(false);
     if (this.bot && this.state === 'over' && this.overT > 3.2) this.startRun(true);
 
-    if (this.state === 'title' && this.sim.cat.planet) {
-      // On the title screen the cat "runs" on top while the planet spins under it.
-      this.sim.cat.local = -Math.PI / 2 - this.sim.cat.planet.angle;
-    }
-    this.sim.update(dt);
+    // On the title screen the cat "runs" on top while the planet spins under it.
+    this.sim.idle = this.state === 'title';
+    this.sim.advance(dt);
     this.handleEvents();
     if (this.sim.cat.state === 'fly') {
       const hue = (this.time * 400) % 360;
@@ -686,6 +690,7 @@ class Game {
 
   private finishRun(cause: string, nearMiss: boolean): void {
     const s = this.sim;
+    this.lastReplay = makeReplay(s, this.runStart);
     const sv = this.save;
     const today = jstDateKey();
     const prevBest = this.prevBest;
