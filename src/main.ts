@@ -195,8 +195,8 @@ class Game {
     $('btn-retry').addEventListener('click', () => this.retry());
     $('btn-home').addEventListener('click', () => this.goHome());
     $('btn-share-img').addEventListener('click', () => void this.shareImg());
-    $('btn-share-x').addEventListener('click', () => this.lastResult && this.openLink(xIntentUrl(this.lastResult)));
-    $('btn-share-line').addEventListener('click', () => this.lastResult && this.openLink(lineUrl(this.lastResult)));
+    $('btn-share-x').addEventListener('click', () => this.sound.click());
+    $('btn-share-line').addEventListener('click', () => this.sound.click());
     $('btn-share-game').addEventListener('click', () => void this.shareGame());
     $('btn-gacha').addEventListener('click', () => this.openGacha());
     $('btn-res-gacha').addEventListener('click', () => this.openGacha());
@@ -682,6 +682,8 @@ class Game {
     $('res-perfect').textContent = String(s.perfects);
     $('res-combo').textContent = String(s.maxCombo);
     $('res-coins').textContent = `+${earned}`;
+    $<HTMLAnchorElement>('btn-share-x').href = xIntentUrl(this.lastResult);
+    $<HTMLAnchorElement>('btn-share-line').href = lineUrl(this.lastResult);
     if (dailyBonus) setTimeout(() => this.toast(`ログインボーナス ★+${dailyBonus}`), 1400);
   }
 
@@ -709,11 +711,6 @@ class Game {
       this.sound.record();
       this.fx.confetti(W / 2, this.sim.camY + this.viewH * 0.1, 80);
     }
-  }
-
-  private openLink(url: string): void {
-    this.sound.click();
-    window.open(url, '_blank', 'noopener');
   }
 
   private async shareImg(): Promise<void> {

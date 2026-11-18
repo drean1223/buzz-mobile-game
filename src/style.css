@@ -351,6 +351,12 @@ button {
 /* ---------- Buttons ---------- */
 .btn {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+  color: inherit;
   min-height: 52px;
   padding: 10px 14px;
   border-radius: 18px;
