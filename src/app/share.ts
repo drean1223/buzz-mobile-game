@@ -21,6 +21,25 @@ export interface RunResult {
   skin: Skin;
   /** Daily ranking position of the player's best today, once the server answered. */
   world?: { rank: number; total: number };
+  /** Player's name; put in challenge links when they picked one themselves. */
+  name?: string;
+  /** The friend's score this run beat (from their challenge link). */
+  beat?: { name: string | null; score: number };
+}
+
+/** Names given automatically (ねこ1234) say nothing to a friend, so links leave them out. */
+export const isDefaultName = (n: string): boolean => /^ねこ\d{4}$/.test(n);
+
+const hiddenChar = (c: number) => c < 0x20 || (c >= 0x7f && c <= 0x9f) || (c >= 0x200b && c <= 0x200f) || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2060 && c <= 0x206f) || c === 0xfeff;
+
+/** Same cleanup the ranking server does: no control/bidi characters, at most 12 characters. */
+export function cleanName(n: string): string {
+  const s = [...n.normalize('NFKC')]
+    .filter((ch) => !hiddenChar(ch.codePointAt(0) ?? 0))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return [...s].slice(0, 12).join('');
 }
 
 /** Public URL of the game (set VITE_PUBLIC_URL at build time for builds hosted elsewhere). */
@@ -39,6 +58,7 @@ export function challengeUrl(r: RunResult): string {
   u.searchParams.set('vs', String(r.score));
   if (r.mode === 'daily') u.searchParams.set('d', r.dailyKey);
   else u.searchParams.set('seed', r.seed.toString(36));
+  if (r.name && !isDefaultName(r.name)) u.searchParams.set('n', r.name);
   return u.toString();
 }
 
@@ -52,6 +72,7 @@ export function shareText(r: RunResult): string {
   const lines = [
     `🐱${GAME_NAME} ${head}`,
     `スコア ${r.score}${r.isRecord ? ' 🏆自己ベスト！' : ''}`,
+    ...(r.beat ? [`⚔️${r.beat.name ? `${r.beat.name}の` : 'ともだちの'}${r.beat.score}に勝った！`] : []),
     ...(r.world ? [`🏆全国${r.world.rank}位（${r.world.total}人中）`] : []),
     `称号「${rank.name}」`,
     zoneBar(r.zone),

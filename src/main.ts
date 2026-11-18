@@ -17,7 +17,7 @@ import { loadSave, writeSave } from './app/storage.ts';
 import type { Save } from './app/storage.ts';
 import { rollGacha, GACHA_COST, DUPLICATE_REFUND } from './app/gacha.ts';
 import { missionsFor, missionLabel, applyRun, MISSION_REWARD, ALL_CLEAR_BONUS } from './app/missions.ts';
-import { xIntentUrl, lineUrl, baseUrl, makeShareCard, prepareCard, canShareFile, shareFile, shareText, challengeUrl, copyText, GAME_NAME, HASHTAG } from './app/share.ts';
+import { xIntentUrl, lineUrl, baseUrl, makeShareCard, prepareCard, canShareFile, shareFile, shareText, challengeUrl, copyText, cleanName, GAME_NAME, HASHTAG } from './app/share.ts';
 import type { RunResult, PreparedCard } from './app/share.ts';
 import { submitDaily, dailyTop, dailyMe, trackSession, uuid, visitSource } from './app/net.ts';
 import type { SessionStats, MyRank } from './app/net.ts';
@@ -31,6 +31,8 @@ interface Rival {
   score: number;
   seed: number | null;
   mode: Mode;
+  /** Friend's name from the link, if they set one. */
+  name: string | null;
 }
 
 const MISS_LINES = ['にゃーん…（宇宙ねこ）', 'どこまでも とんでいく…', 'ここは…どこ…？', 'あっ。', 'ちきゅうが…とおい…'];
@@ -169,16 +171,17 @@ class Game {
     if (!Number.isFinite(vs) || vs < 0 || vs > 100000) return;
     const d = q.get('d');
     const seedStr = q.get('seed');
+    const name = cleanName(q.get('n') ?? '') || null;
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
       if (d === jstDateKey()) {
         this.mode = 'daily';
-        this.rival = { score: vs, seed: null, mode: 'daily' };
+        this.rival = { score: vs, seed: null, mode: 'daily', name };
       } else {
-        this.rival = { score: vs, seed: dailySeed(d), mode: 'endless' };
+        this.rival = { score: vs, seed: dailySeed(d), mode: 'endless', name };
       }
     } else if (seedStr) {
       const seed = parseInt(seedStr, 36);
-      if (Number.isFinite(seed) && seed > 0) this.rival = { score: vs, seed, mode: 'endless' };
+      if (Number.isFinite(seed) && seed > 0) this.rival = { score: vs, seed, mode: 'endless', name };
     }
   }
 
@@ -659,7 +662,8 @@ class Game {
     const rival = this.activeRival();
     if (rival) {
       if (s.score <= rival.score) {
-        sub = `ライバル ${rival.score} まで あと${rival.score - s.score + 1}`;
+        const who = rival.name && [...rival.name].length <= 6 ? rival.name : 'ライバル';
+        sub = `${who} ${rival.score} まで あと${rival.score - s.score + 1}`;
         hot = rival.score - s.score <= 5;
       } else {
         sub = 'ライバル撃破！🎉';
@@ -736,10 +740,12 @@ class Game {
     const rb = $('rival');
     if (rival) {
       rb.innerHTML = '';
-      rb.append('ともだちのスコア ');
       const b = document.createElement('b');
       b.textContent = String(rival.score);
-      rb.append(b, ' をこえろ！（おなじコース）');
+      if (rival.name) {
+        const n = [...rival.name];
+        rb.append(`⚔️ ${n.length > 8 ? n.slice(0, 7).join('') + '…' : rival.name}の `, b, ' をこえろ！');
+      } else rb.append('ともだちのスコア ', b, ' をこえろ！（おなじコース）');
       rb.classList.remove('hidden');
     } else rb.classList.add('hidden');
     $('mission-count').textContent = `${this.save.missions.filter((m) => m.done).length}/${this.save.missions.length}`;
@@ -822,7 +828,10 @@ class Game {
       seed: s.seed,
       dailyKey: today,
       skin: this.skin,
+      name: this.save.name,
     };
+    const beaten = this.activeRival();
+    if (beaten && s.score > beaten.score) this.lastResult.beat = { name: beaten.name, score: beaten.score };
 
     let msg = cause === 'fuse' ? pick(FUSE_LINES) : cause === 'hazard' ? pick(HAZARD_LINES) : pick(MISS_LINES);
     if (nearMiss) msg = 'おしい！あとちょっとだった…！';
@@ -835,14 +844,14 @@ class Game {
     const rival = this.activeRival();
     const next = nextRank(s.score);
     let nextTxt = '';
-    if (rival) nextTxt = s.score > rival.score ? `ライバル（${rival.score}）に勝った！🎉` : `ライバル（${rival.score}）まで あと${rival.score - s.score + 1}！`;
+    const who = rival?.name ?? 'ライバル';
+    if (rival) nextTxt = s.score > rival.score ? `${who}（${rival.score}）に勝った！🎉` : `${who}（${rival.score}）まで あと${rival.score - s.score + 1}！`;
     else if (next) nextTxt = `つぎの称号まで あと${next.min - s.score}！`;
     $('res-next').textContent = nextTxt;
     $('res-perfect').textContent = String(s.perfects);
     $('res-combo').textContent = String(s.maxCombo);
     $('res-coins').textContent = `+${earned}`;
-    for (const id of ['btn-share-x', 'sheet-x']) $<HTMLAnchorElement>(id).href = xIntentUrl(this.lastResult);
-    for (const id of ['btn-share-line', 'sheet-line']) $<HTMLAnchorElement>(id).href = lineUrl(this.lastResult);
+    this.refreshShareLinks(this.lastResult);
     this.card = null;
     const res = this.lastResult;
     this.cardPromise = prepareCard(res).then((c) => {
@@ -861,6 +870,11 @@ class Game {
     rm.classList.toggle('hidden', lines.length === 0);
     $('res-world').classList.toggle('hidden', this.mode !== 'daily');
     if (this.mode === 'daily') void this.rankAfterRun(this.lastResult, this.lastReplay);
+  }
+
+  private refreshShareLinks(res: RunResult): void {
+    for (const id of ['btn-share-x', 'sheet-x']) $<HTMLAnchorElement>(id).href = xIntentUrl(res);
+    for (const id of ['btn-share-line', 'sheet-line']) $<HTMLAnchorElement>(id).href = lineUrl(res);
   }
 
   // ---------------------------------------------------------------- daily ranking
@@ -905,8 +919,7 @@ class Game {
     el.innerHTML = this.worldLabel(r);
     // Put the rank in the share text and on the card.
     res.world = { rank: r.rank, total: r.total };
-    for (const id of ['btn-share-x', 'sheet-x']) $<HTMLAnchorElement>(id).href = xIntentUrl(res);
-    for (const id of ['btn-share-line', 'sheet-line']) $<HTMLAnchorElement>(id).href = lineUrl(res);
+    this.refreshShareLinks(res);
     this.card = null;
     this.cardPromise = prepareCard(res).then((c) => {
       if (this.lastResult === res) this.card = c;
@@ -979,7 +992,7 @@ class Game {
 
   private async rename(): Promise<void> {
     const input = $<HTMLInputElement>('ranking-name');
-    const name = [...input.value.replace(/\s+/g, ' ').trim()].slice(0, 12).join('');
+    const name = cleanName(input.value);
     if (!name) {
       input.value = this.save.name;
       return;
@@ -990,6 +1003,11 @@ class Game {
     this.save.name = name;
     writeSave(this.save);
     this.toast('なまえを変えたよ');
+    // The challenge link carries the name, so a share right after this uses the new one.
+    if (this.lastResult) {
+      this.lastResult.name = name;
+      this.refreshShareLinks(this.lastResult);
+    }
     // Re-send today's best so the new name shows up right away.
     const sv = this.save;
     if (sv.rankReplay && sv.rankKey === jstDateKey()) {
