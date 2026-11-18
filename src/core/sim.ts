@@ -2,8 +2,16 @@ import { Course } from './world.ts';
 import type { Planet, Coin } from './world.ts';
 import { W, CAT_R, CAT_SPEED, PERFECT_ACC, FEVER_COMBO, clamp } from './constants.ts';
 import { zoneIndexFor } from './zones.ts';
+import { dcos, dsin, dhypot, datan2 } from './dmath.ts';
 
 export type DeathCause = 'miss' | 'fuse' | 'hazard';
+
+/**
+ * The simulation runs in fixed steps so a run is fully described by its seed,
+ * view height, and the step numbers at which the player jumped (see replay.ts).
+ */
+export const STEP = 1 / 240;
+const CAM_K = 0.018575312252222864;
 export type CatState = 'ground' | 'fly' | 'dead';
 
 export interface Cat {
@@ -70,6 +78,13 @@ export class Sim {
   nearMiss = false;
   camY = 0;
   viewH = 640;
+  /** Fixed steps simulated so far. */
+  tick = 0;
+  /** Title screen: the cat rides on top of the spinning planet. */
+  idle = false;
+  /** Step numbers at which the player jumped. */
+  jumpTicks: number[] = [];
+  private acc = 0;
   private tickAcc = 0;
 
   constructor(seed: number, viewH: number) {
@@ -110,12 +125,28 @@ export class Sim {
     return null;
   }
 
+  /** Advance by a frame's (possibly scaled) dt, in fixed steps. */
+  advance(dt: number): void {
+    this.acc = Math.min(this.acc + dt, 0.25);
+    while (this.acc >= STEP) {
+      this.acc -= STEP;
+      this.step();
+    }
+  }
+
+  step(): void {
+    if (this.idle && this.cat.planet) this.cat.local = -Math.PI / 2 - this.cat.planet.angle;
+    this.update(STEP);
+    this.tick++;
+  }
+
   jump(): boolean {
     const c = this.cat;
-    if (this.over || c.state !== 'ground' || !c.planet) return false;
+    if (this.over || c.state !== 'ground' || !c.planet || this.idle) return false;
+    this.jumpTicks.push(this.tick);
     const a = this.catAngle;
-    const dx = Math.cos(a);
-    const dy = Math.sin(a);
+    const dx = dcos(a);
+    const dy = dsin(a);
     c.vx = dx * CAT_SPEED;
     c.vy = dy * CAT_SPEED;
     c.from = c.planet;
@@ -129,7 +160,7 @@ export class Sim {
     return true;
   }
 
-  update(dt: number): void {
+  private update(dt: number): void {
     this.time += dt;
     this.course.update(dt, this.time);
     const c = this.cat;
@@ -171,7 +202,7 @@ export class Sim {
     c.y += c.vy * h;
 
     for (const coin of this.course.coins) {
-      if (!coin.taken && Math.hypot(coin.x - c.x, coin.y - c.y) < CAT_R + 12) {
+      if (!coin.taken && dhypot(coin.x - c.x, coin.y - c.y) < CAT_R + 12) {
         coin.taken = true;
         this.coins++;
         this.events.push({ t: 'coin', c: coin });
@@ -181,7 +212,7 @@ export class Sim {
     for (const p of this.course.planets) {
       if (!p.alive) continue;
       const hz = p.hazard;
-      if (hz && Math.hypot(hz.x - c.x, hz.y - c.y) < hz.r + CAT_R * 0.8) {
+      if (hz && dhypot(hz.x - c.x, hz.y - c.y) < hz.r + CAT_R * 0.8) {
         this.die('hazard');
         const nx = (c.x - hz.x) / (hz.r + CAT_R);
         const ny = (c.y - hz.y) / (hz.r + CAT_R);
@@ -194,7 +225,8 @@ export class Sim {
       if (p === c.from && c.flyT < 0.35) continue;
       const dx = c.x - p.x;
       const dy = c.y - p.y;
-      if (dx * dx + dy * dy < (p.r + CAT_R) ** 2) {
+      const rr = p.r + CAT_R;
+      if (dx * dx + dy * dy < rr * rr) {
         this.land(p);
         return;
       }
@@ -203,12 +235,12 @@ export class Sim {
 
   private land(p: Planet): void {
     const c = this.cat;
-    const sp = Math.hypot(c.vx, c.vy) || 1;
+    const sp = dhypot(c.vx, c.vy) || 1;
     const dirX = c.vx / sp;
     const dirY = c.vy / sp;
     const b = Math.abs((p.x - c.x) * dirY - (p.y - c.y) * dirX);
     const acc = clamp(b / (p.r + CAT_R), 0, 1);
-    const ang = Math.atan2(c.y - p.y, c.x - p.x);
+    const ang = datan2(c.y - p.y, c.x - p.x);
     c.local = ang - p.angle;
     c.state = 'ground';
     c.planet = p;
@@ -235,6 +267,10 @@ export class Sim {
       }
       this.fever = this.combo >= FEVER_COMBO;
       if (this.fever !== wasFever) this.events.push({ t: 'fever', on: this.fever });
+      if (p.rare) {
+        pts += 3;
+        this.coins += 3;
+      }
       this.score += pts;
       const z = zoneIndexFor(this.score);
       if (z > this.zone) {
@@ -262,8 +298,8 @@ export class Sim {
       back,
       x: c.x,
       y: c.y,
-      nx: Math.cos(ang),
-      ny: Math.sin(ang),
+      nx: dcos(ang),
+      ny: dsin(ang),
     });
   }
 
@@ -276,8 +312,8 @@ export class Sim {
     const a = this.catAngle;
     c.planet = null;
     c.state = 'dead';
-    c.vx = Math.cos(a) * 160;
-    c.vy = Math.sin(a) * 160;
+    c.vx = dcos(a) * 160;
+    c.vy = dsin(a) * 160;
     c.spin = 3;
     this.die('fuse');
   }
@@ -292,7 +328,7 @@ export class Sim {
       (c.y < this.camY - 120 && !this.rayHitsAnything());
     if (!off) return;
     // Near miss: the flight line passed close to an unvisited planet.
-    const sp = Math.hypot(c.vx, c.vy) || 1;
+    const sp = dhypot(c.vx, c.vy) || 1;
     const dx = c.vx / sp;
     const dy = c.vy / sp;
     let near = false;
@@ -315,7 +351,7 @@ export class Sim {
 
   private rayHitsAnything(): boolean {
     const c = this.cat;
-    const sp = Math.hypot(c.vx, c.vy) || 1;
+    const sp = dhypot(c.vx, c.vy) || 1;
     const dx = c.vx / sp;
     const dy = c.vy / sp;
     for (const p of this.course.planets) {
@@ -346,8 +382,8 @@ export class Sim {
     const p = c.planet;
     if (!p) return;
     const a = p.angle + c.local;
-    c.x = p.x + Math.cos(a) * (p.r + CAT_R);
-    c.y = p.y + Math.sin(a) * (p.r + CAT_R);
+    c.x = p.x + dcos(a) * (p.r + CAT_R);
+    c.y = p.y + dsin(a) * (p.r + CAT_R);
     c.rot = a + Math.PI / 2;
   }
 
@@ -362,7 +398,8 @@ export class Sim {
     let target = this.cameraTarget();
     if (c.state === 'fly') target = Math.min(target, c.y - this.viewH * 0.42);
     if (c.state === 'dead') target = this.camY;
-    const k = 1 - Math.exp(-dt * 4.5);
+    // 1 - exp(-STEP * 4.5), written out so every engine uses the same bits.
+    const k = dt === STEP ? CAM_K : 1 - Math.exp(-dt * 4.5);
     this.camY += (target - this.camY) * k;
   }
 }

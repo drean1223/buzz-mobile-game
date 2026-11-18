@@ -55,6 +55,26 @@ export interface CatLook {
 }
 
 const STAR_TILE = 1100;
+const BG_RES = 0.5; // background buffer pixels per world unit
+
+interface PlanetSprites {
+  k: number;
+  /** Glow (alpha 1, drawn with globalAlpha), its half size in world units. */
+  glow: HTMLCanvasElement;
+  glowH: number;
+  /** Body with static shading and rim light (no body fill for rare planets). */
+  body: HTMLCanvasElement;
+  /** Surface features, drawn rotated with the planet. */
+  feat: HTMLCanvasElement;
+  bodyH: number;
+}
+
+function canvas(w: number, h: number): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.ceil(w));
+  c.height = Math.max(1, Math.ceil(h));
+  return c;
+}
 
 export class Scene {
   stars: Star[] = [];
@@ -64,6 +84,12 @@ export class Scene {
   private palT = 1;
   shooting: { x: number; y: number; vx: number; vy: number; life: number } | null = null;
   feverT = 0;
+  /** Device pixels per world unit for this frame (set in drawBackground). */
+  private k = 1;
+  /** Sky, nebula and vignette are soft, so they are drawn small and scaled up. */
+  private bg: HTMLCanvasElement | null = null;
+  private bgCtx: CanvasRenderingContext2D | null = null;
+  private sprites = new WeakMap<Planet, PlanetSprites>();
 
   constructor() {
     for (let i = 0; i < 130; i++) {
@@ -122,12 +148,21 @@ export class Scene {
   }
 
   drawBackground(ctx: CanvasRenderingContext2D, viewH: number, camY: number, time: number): void {
+    this.k = ctx.getTransform().a;
+    const bw = Math.ceil(W * BG_RES);
+    const bh = Math.ceil(viewH * BG_RES);
+    if (!this.bg || this.bg.width !== bw || this.bg.height !== bh) {
+      this.bg = canvas(bw, bh);
+      this.bgCtx = this.bg.getContext('2d', { alpha: false });
+    }
+    const b = this.bgCtx!;
+    b.setTransform(BG_RES, 0, 0, BG_RES, 0, 0);
     const pal = this.currentPalette();
-    const g = ctx.createLinearGradient(0, 0, 0, viewH);
+    const g = b.createLinearGradient(0, 0, 0, viewH);
     g.addColorStop(0, css(pal.top));
     g.addColorStop(1, css(pal.bottom));
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, viewH);
+    b.fillStyle = g;
+    b.fillRect(0, 0, W, viewH);
 
     // Nebula clouds (slow parallax)
     const nebY = camY * 0.06;
@@ -135,13 +170,22 @@ export class Scene {
       const baseY = ((i * 420 - nebY) % 1680 + 1680) % 1680 - 400;
       const x = i % 2 === 0 ? W * 0.18 : W * 0.85;
       const r = 230 + (i % 3) * 40;
+      if (baseY + r < 0 || baseY - r > viewH) continue;
       const col = i % 2 === 0 ? pal.n1 : pal.n2;
-      const ng = ctx.createRadialGradient(x, baseY, 0, x, baseY, r);
+      const ng = b.createRadialGradient(x, baseY, 0, x, baseY, r);
       ng.addColorStop(0, css(col, 0.26 + this.feverT * 0.15));
       ng.addColorStop(1, css(col, 0));
-      ctx.fillStyle = ng;
-      ctx.fillRect(x - r, baseY - r, r * 2, r * 2);
+      b.fillStyle = ng;
+      b.fillRect(x - r, baseY - r, r * 2, r * 2);
     }
+    // Vignette
+    const v = b.createRadialGradient(W / 2, viewH / 2, viewH * 0.35, W / 2, viewH / 2, viewH * 0.75);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,10,0.4)');
+    b.fillStyle = v;
+    b.fillRect(0, 0, W, viewH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.bg, 0, 0, bw / BG_RES, bh / BG_RES);
 
     // Distant planets
     for (const f of this.far) {
@@ -205,6 +249,97 @@ export class Scene {
     this.bumps.set(p, time);
   }
 
+  /** Pre-rendered planet layers, rebuilt only when the pixel scale changes. */
+  private planetSprites(p: Planet): PlanetSprites {
+    const k = this.k;
+    const old = this.sprites.get(p);
+    if (old && old.k === k) return old;
+    const r = p.r;
+    const h = p.hue;
+    const sat = p.kind === 'start' ? 45 : 72;
+
+    // Glow: soft, so half resolution is plenty.
+    const glowH = r * 1.75 + 2;
+    const gk = k * 0.5;
+    const glow = canvas(glowH * 2 * gk, glowH * 2 * gk);
+    const g = glow.getContext('2d')!;
+    g.setTransform(gk, 0, 0, gk, glow.width / 2, glow.height / 2);
+    const gg = g.createRadialGradient(0, 0, r * 0.8, 0, 0, r * 1.75);
+    gg.addColorStop(0, `hsla(${h}, 95%, 70%, 1)`);
+    gg.addColorStop(1, `hsla(${h}, 95%, 70%, 0)`);
+    g.fillStyle = gg;
+    g.beginPath();
+    g.arc(0, 0, r * 1.75, 0, TAU);
+    g.fill();
+
+    const bodyH = r + 2;
+    const body = canvas(bodyH * 2 * k, bodyH * 2 * k);
+    const b = body.getContext('2d')!;
+    b.setTransform(k, 0, 0, k, body.width / 2, body.height / 2);
+    if (!p.rare) {
+      const bg = b.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r);
+      bg.addColorStop(0, `hsl(${h}, ${sat + 15}%, 82%)`);
+      bg.addColorStop(0.55, `hsl(${h}, ${sat}%, 63%)`);
+      bg.addColorStop(1, `hsl(${h}, ${sat - 10}%, 42%)`);
+      b.fillStyle = bg;
+      b.beginPath();
+      b.arc(0, 0, r, 0, TAU);
+      b.fill();
+    }
+    const shade = b.createRadialGradient(-r * 0.45, -r * 0.5, r * 0.2, 0, 0, r * 1.05);
+    shade.addColorStop(0, 'rgba(255,255,255,0)');
+    shade.addColorStop(0.7, 'rgba(0,0,0,0)');
+    shade.addColorStop(1, 'rgba(10,0,30,0.35)');
+    b.fillStyle = shade;
+    b.beginPath();
+    b.arc(0, 0, r, 0, TAU);
+    b.fill();
+    b.strokeStyle = 'rgba(255,255,255,0.45)';
+    b.lineWidth = 1.6;
+    b.beginPath();
+    b.arc(0, 0, r - 0.8, Math.PI * 1.05, Math.PI * 1.6);
+    b.stroke();
+
+    const feat = canvas(bodyH * 2 * k, bodyH * 2 * k);
+    const f = feat.getContext('2d')!;
+    f.setTransform(k, 0, 0, k, feat.width / 2, feat.height / 2);
+    f.beginPath();
+    f.arc(0, 0, r, 0, TAU);
+    f.clip();
+    if (p.style === 1) {
+      f.fillStyle = `hsla(${h}, ${sat}%, 35%, 0.28)`;
+      for (const off of [-0.55, -0.1, 0.38]) {
+        f.beginPath();
+        f.ellipse(0, off * r, r * 1.1, r * 0.11, 0, 0, TAU);
+        f.fill();
+      }
+      f.fillStyle = `hsla(${h}, 90%, 88%, 0.35)`;
+      f.beginPath();
+      f.ellipse(r * 0.25, r * 0.12, r * 0.22, r * 0.12, 0, 0, TAU);
+      f.fill();
+    } else {
+      for (const c of p.craters) {
+        const cx = Math.cos(c.a) * c.d * r;
+        const cy = Math.sin(c.a) * c.d * r;
+        const cr = c.s * r;
+        f.fillStyle = p.style === 2 ? `hsla(${h}, 90%, 88%, 0.45)` : `hsla(${h}, ${sat}%, 30%, 0.35)`;
+        f.beginPath();
+        f.arc(cx, cy, cr, 0, TAU);
+        f.fill();
+        if (p.style === 0) {
+          f.strokeStyle = `hsla(${h}, 90%, 90%, 0.35)`;
+          f.lineWidth = 1.2;
+          f.beginPath();
+          f.arc(cx + cr * 0.12, cy + cr * 0.12, cr, Math.PI * 0.9, Math.PI * 1.9);
+          f.stroke();
+        }
+      }
+    }
+    const sp = { k, glow, glowH, body, feat, bodyH };
+    this.sprites.set(p, sp);
+    return sp;
+  }
+
   drawPlanet(ctx: CanvasRenderingContext2D, p: Planet, time: number, fuseFrac: number | null, aimed: boolean): void {
     let x = p.x;
     let y = p.y;
@@ -222,87 +357,50 @@ export class Scene {
       x += (Math.random() - 0.5) * amt;
       y += (Math.random() - 0.5) * amt;
     }
-    const h = p.hue;
-    const sat = p.kind === 'start' ? 45 : 72;
+    const sp = this.planetSprites(p);
+    const sc = r / p.r;
 
     // Glow
-    const glow = ctx.createRadialGradient(x, y, r * 0.8, x, y, r * 1.75);
-    glow.addColorStop(0, `hsla(${h}, 95%, 70%, ${aimed ? 0.42 : 0.26})`);
-    glow.addColorStop(1, `hsla(${h}, 95%, 70%, 0)`);
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 1.75, 0, TAU);
-    ctx.fill();
+    ctx.globalAlpha = aimed ? 0.42 : 0.26;
+    const gh = sp.glowH * sc;
+    ctx.drawImage(sp.glow, x - gh, y - gh, gh * 2, gh * 2);
+    ctx.globalAlpha = 1;
 
-    // Body
-    const body = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
-    body.addColorStop(0, `hsl(${h}, ${sat + 15}%, 82%)`);
-    body.addColorStop(0.55, `hsl(${h}, ${sat}%, 63%)`);
-    body.addColorStop(1, `hsl(${h}, ${sat - 10}%, 42%)`);
-    ctx.fillStyle = body;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, TAU);
-    ctx.fill();
+    // Body (rare planets cycle through the rainbow, so their fill is live)
+    if (p.rare) {
+      const body = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
+      for (let i = 0; i <= 6; i++) body.addColorStop(i / 6, `hsl(${(i * 60 + time * 90) % 360}, 90%, 70%)`);
+      ctx.fillStyle = body;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TAU);
+      ctx.fill();
+    }
+    const bh = sp.bodyH * sc;
+    ctx.drawImage(sp.body, x - bh, y - bh, bh * 2, bh * 2);
 
     // Rotating surface features (they make the spin readable)
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, TAU);
-    ctx.clip();
     ctx.translate(x, y);
     ctx.rotate(p.angle);
-    if (p.style === 1) {
-      ctx.fillStyle = `hsla(${h}, ${sat}%, 35%, 0.28)`;
-      for (const off of [-0.55, -0.1, 0.38]) {
-        ctx.beginPath();
-        ctx.ellipse(0, off * r, r * 1.1, r * 0.11, 0, 0, TAU);
-        ctx.fill();
-      }
-      ctx.fillStyle = `hsla(${h}, 90%, 88%, 0.35)`;
-      ctx.beginPath();
-      ctx.ellipse(r * 0.25, r * 0.12, r * 0.22, r * 0.12, 0, 0, TAU);
-      ctx.fill();
-    } else {
-      for (const c of p.craters) {
-        const cx = Math.cos(c.a) * c.d * r;
-        const cy = Math.sin(c.a) * c.d * r;
-        const cr = c.s * r;
-        ctx.fillStyle = p.style === 2 ? `hsla(${h}, 90%, 88%, 0.45)` : `hsla(${h}, ${sat}%, 30%, 0.35)`;
-        ctx.beginPath();
-        ctx.arc(cx, cy, cr, 0, TAU);
-        ctx.fill();
-        if (p.style === 0) {
-          ctx.strokeStyle = `hsla(${h}, 90%, 90%, 0.35)`;
-          ctx.lineWidth = 1.2;
-          ctx.beginPath();
-          ctx.arc(cx + cr * 0.12, cy + cr * 0.12, cr, Math.PI * 0.9, Math.PI * 1.9);
-          ctx.stroke();
-        }
-      }
-    }
+    ctx.drawImage(sp.feat, -bh, -bh, bh * 2, bh * 2);
     ctx.restore();
-
-    // Static shading for a 3D look
-    const shade = ctx.createRadialGradient(x - r * 0.45, y - r * 0.5, r * 0.2, x, y, r * 1.05);
-    shade.addColorStop(0, 'rgba(255,255,255,0)');
-    shade.addColorStop(0.7, 'rgba(0,0,0,0)');
-    shade.addColorStop(1, 'rgba(10,0,30,0.35)');
-    ctx.fillStyle = shade;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, TAU);
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.arc(x, y, r - 0.8, Math.PI * 1.05, Math.PI * 1.6);
-    ctx.stroke();
 
     if (danger) {
       ctx.fillStyle = `rgba(255,40,60,${0.25 + 0.2 * Math.sin(time * 30)})`;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, TAU);
       ctx.fill();
+    }
+
+    if (p.rare) {
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 4; i++) {
+        const a = time * 1.5 + (i * TAU) / 4;
+        const tw = 0.5 + 0.5 * Math.sin(time * 6 + i);
+        ctx.globalAlpha = tw;
+        drawStar(ctx, x + Math.cos(a) * (r + 12), y + Math.sin(a) * (r + 12), 4 + tw * 3, a);
+      }
+      ctx.globalAlpha = 1;
     }
 
     // Kind markers
@@ -355,6 +453,29 @@ export class Scene {
       ctx.arc(x, y, r + 9, -Math.PI / 2, -Math.PI / 2 + f * TAU);
       ctx.stroke();
     }
+  }
+
+  /** Where your best run ended: a goal to beat. */
+  drawBestMark(ctx: CanvasRenderingContext2D, p: Planet, time: number): void {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,214,70,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([7, 6]);
+    ctx.lineDashOffset = -time * 20;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r + 16, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 13px ${FONT}`;
+    const ty = p.y - p.r - 30 + Math.sin(time * 3) * 2;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(40,20,0,0.9)';
+    ctx.strokeText('👑 BEST', p.x, ty);
+    ctx.fillStyle = '#ffd646';
+    ctx.fillText('👑 BEST', p.x, ty);
+    ctx.restore();
   }
 
   drawHazard(ctx: CanvasRenderingContext2D, p: Planet, h: Hazard, time: number): void {
@@ -477,7 +598,7 @@ export class Scene {
     skin: Skin,
     look: CatLook,
     time: number,
-    opts: { guideLen: number; tutorial: boolean; showCat: boolean },
+    opts: { guideLen: number; tutorial: boolean; showCat: boolean; bestIdx: number },
   ): { aligned: boolean } {
     const c = sim.cat;
     const top = sim.camY - 80;
@@ -502,6 +623,7 @@ export class Scene {
     }
     for (const p of sim.course.planets) {
       if (p.alive && p.hazard && p.y > top - 80 && p.y < bottom + 80) this.drawHazard(ctx, p, p.hazard, time);
+      if (p.alive && opts.bestIdx > 0 && p.idx === opts.bestIdx && sim.maxIdx < opts.bestIdx) this.drawBestMark(ctx, p, time);
     }
     if (c.state === 'ground' && !sim.over && opts.guideLen > 0) {
       this.drawGuide(ctx, sim, opts.guideLen, opts.tutorial && aligned, time);
@@ -527,12 +649,6 @@ export class Scene {
         ctx.fillRect(Math.min(x0, x1), 0, 26, viewH);
       }
     }
-    // Vignette
-    const v = ctx.createRadialGradient(W / 2, viewH / 2, viewH * 0.35, W / 2, viewH / 2, viewH * 0.75);
-    v.addColorStop(0, 'rgba(0,0,0,0)');
-    v.addColorStop(1, 'rgba(0,0,10,0.35)');
-    ctx.fillStyle = v;
-    ctx.fillRect(0, 0, W, viewH);
     if (fx.flash > 0) {
       ctx.fillStyle = `rgba(${fx.flashColor},${fx.flash})`;
       ctx.fillRect(0, 0, W, viewH);

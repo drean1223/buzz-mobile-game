@@ -4,6 +4,8 @@ import type { SimEvent } from './core/sim.ts';
 import { W, CAT_R, TAU, clamp, wrapAngle } from './core/constants.ts';
 import { ZONES, rankFor, nextRank } from './core/zones.ts';
 import { randomSeed } from './core/rng.ts';
+import { makeReplay } from './core/replay.ts';
+import type { Replay } from './core/replay.ts';
 import { jstDateKey, dailyNumber, dailySeed, shortDate } from './core/daily.ts';
 import { Scene } from './render/scene.ts';
 import type { CatLook } from './render/scene.ts';
@@ -15,8 +17,10 @@ import { loadSave, writeSave } from './app/storage.ts';
 import type { Save } from './app/storage.ts';
 import { rollGacha, GACHA_COST, DUPLICATE_REFUND } from './app/gacha.ts';
 import { missionsFor, missionLabel, applyRun, MISSION_REWARD, ALL_CLEAR_BONUS } from './app/missions.ts';
-import { xIntentUrl, lineUrl, baseUrl, makeShareCard, prepareCard, canShareFile, shareFile, shareText, challengeUrl, copyText, GAME_NAME, HASHTAG } from './app/share.ts';
+import { xIntentUrl, lineUrl, baseUrl, makeShareCard, prepareCard, canShareFile, shareFile, shareText, challengeUrl, copyText, cleanName, GAME_NAME, HASHTAG } from './app/share.ts';
 import type { RunResult, PreparedCard } from './app/share.ts';
+import { submitDaily, dailyTop, dailyMe, trackSession, uuid, visitSource } from './app/net.ts';
+import type { SessionStats, MyRank } from './app/net.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -27,6 +31,8 @@ interface Rival {
   score: number;
   seed: number | null;
   mode: Mode;
+  /** Friend's name from the link, if they set one. */
+  name: string | null;
 }
 
 const MISS_LINES = ['にゃーん…（宇宙ねこ）', 'どこまでも とんでいく…', 'ここは…どこ…？', 'あっ。', 'ちきゅうが…とおい…'];
@@ -77,6 +83,14 @@ class Game {
   private hudScore = -1;
   private hudSubText = '';
   private bot = false;
+  /** Sim step at which the current run left the title screen (for replays). */
+  private runStart = 0;
+  lastReplay: Replay | null = null;
+  /** Today's daily ranking position, once known. */
+  private myRank: (MyRank & { day: string }) | null = null;
+  private rankAskedAt = 0;
+  private session!: SessionStats;
+  private sessionT0 = performance.now();
   private botErr = 0;
   private botPlanet = -1;
   private revealing = false;
@@ -86,6 +100,7 @@ class Game {
   private cardPromise: Promise<PreparedCard> | null = null;
 
   constructor() {
+    this.initPlayer();
     this.skin = skinById(this.save.skin);
     this.sound.sfxOn = this.save.sfx;
     this.sound.bgmOn = this.save.bgm;
@@ -99,7 +114,10 @@ class Game {
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 200));
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this.sound.suspend();
+      if (document.hidden) {
+        this.sound.suspend();
+        this.flushSession();
+      }
     });
     requestAnimationFrame((t) => {
       this.last = t;
@@ -116,22 +134,54 @@ class Game {
 
   // ---------------------------------------------------------------- setup
 
+  /** Anonymous ranking id + display name, and this visit's play stats. */
+  private initPlayer(): void {
+    const sv = this.save;
+    const firstVisit = sv.plays === 0 && !sv.playerId;
+    if (!sv.playerId) sv.playerId = uuid();
+    if (!sv.name) sv.name = `ねこ${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`;
+    writeSave(sv);
+    this.session = {
+      id: uuid(),
+      player_id: sv.playerId,
+      first_visit: firstVisit,
+      source: visitSource(),
+      lang: (navigator.language || '').slice(0, 12),
+      mobile: typeof matchMedia === 'function' ? matchMedia('(pointer: coarse)').matches : true,
+      plays: 0,
+      daily_plays: 0,
+      best: 0,
+      first_score: null,
+      total_score: 0,
+      shares: 0,
+      gacha: 0,
+      seconds: 0,
+    };
+  }
+
+  private flushSession(): void {
+    if (this.session.plays === 0 && this.session.shares === 0) return;
+    this.session.seconds = Math.round((performance.now() - this.sessionT0) / 1000);
+    trackSession(this.session);
+  }
+
   private readUrl(): void {
     const q = new URLSearchParams(location.search);
     const vs = parseInt(q.get('vs') ?? '', 10);
     if (!Number.isFinite(vs) || vs < 0 || vs > 100000) return;
     const d = q.get('d');
     const seedStr = q.get('seed');
+    const name = cleanName(q.get('n') ?? '') || null;
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
       if (d === jstDateKey()) {
         this.mode = 'daily';
-        this.rival = { score: vs, seed: null, mode: 'daily' };
+        this.rival = { score: vs, seed: null, mode: 'daily', name };
       } else {
-        this.rival = { score: vs, seed: dailySeed(d), mode: 'endless' };
+        this.rival = { score: vs, seed: dailySeed(d), mode: 'endless', name };
       }
     } else if (seedStr) {
       const seed = parseInt(seedStr, 36);
-      if (Number.isFinite(seed) && seed > 0) this.rival = { score: vs, seed, mode: 'endless' };
+      if (Number.isFinite(seed) && seed > 0) this.rival = { score: vs, seed, mode: 'endless', name };
     }
   }
 
@@ -162,6 +212,11 @@ class Game {
     return this.rival && this.rival.mode === this.mode ? this.rival : null;
   }
 
+  private bestIdxForMode(): number {
+    if (this.mode === 'daily') return this.save.dailyKey === jstDateKey() ? this.save.dailyBestIdx : 0;
+    return this.save.bestIdx;
+  }
+
   private bestForMode(): number {
     if (this.mode === 'daily') return this.save.dailyKey === jstDateKey() ? this.save.dailyBest : 0;
     return this.save.best;
@@ -181,7 +236,7 @@ class Game {
   private bindUi(): void {
     this.app.addEventListener('pointerdown', (e) => this.onPointer(e));
     window.addEventListener('keydown', (e) => {
-      if (e.repeat) return;
+      if (e.repeat || (e.target as HTMLElement | null)?.closest?.('input')) return;
       if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowUp') {
         e.preventDefault();
         this.onAction();
@@ -190,7 +245,7 @@ class Game {
     // Stop iOS double-tap zoom / long-press menus inside the game.
     this.app.addEventListener('touchend', (e) => {
       const t = e.target as HTMLElement;
-      if (!t.closest('button, #gacha')) e.preventDefault();
+      if (!t.closest('button, a, input, #gacha, #ranking')) e.preventDefault();
     }, { passive: false });
     this.app.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -217,8 +272,27 @@ class Game {
     $('btn-retry').addEventListener('click', () => this.retry());
     $('btn-home').addEventListener('click', () => this.goHome());
     $('btn-share-img').addEventListener('click', () => void this.shareImg());
-    $('btn-share-x').addEventListener('click', () => this.sound.click());
-    $('btn-share-line').addEventListener('click', () => this.sound.click());
+    const shared = () => {
+      this.sound.click();
+      this.session.shares++;
+    };
+    $('btn-share-x').addEventListener('click', shared);
+    $('btn-share-line').addEventListener('click', shared);
+    for (const id of ['btn-ranking', 'title-rank', 'res-world']) $(id).addEventListener('click', () => void this.openRanking());
+    $('ranking-close').addEventListener('click', () => {
+      this.sound.click();
+      $('ranking').classList.add('hidden');
+    });
+    $('ranking-save').addEventListener('click', () => void this.rename());
+    $('ranking-name').addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') void this.rename();
+    });
+    $('ranking-play').addEventListener('click', () => {
+      this.sound.click();
+      $('ranking').classList.add('hidden');
+      if (this.state !== 'title') this.goHome();
+      this.setMode('daily');
+    });
     $('btn-share-game').addEventListener('click', () => void this.shareGame());
     $('btn-gacha').addEventListener('click', () => this.openGacha());
     $('btn-missions').addEventListener('click', () => this.openMissions());
@@ -252,14 +326,14 @@ class Game {
   private onPointer(e: PointerEvent): void {
     const t = e.target as HTMLElement;
     this.sound.unlock();
-    if (t.closest('button, a, #gacha, #reveal, #result, #sheet, #missions')) return;
+    if (t.closest('button, a, input, #gacha, #reveal, #result, #sheet, #missions, #ranking')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     this.onAction();
   }
 
   private onAction(): void {
     this.sound.unlock();
-    for (const id of ['gacha', 'sheet', 'missions']) if (!$(id).classList.contains('hidden')) return;
+    for (const id of ['gacha', 'sheet', 'missions', 'ranking']) if (!$(id).classList.contains('hidden')) return;
     if (this.revealing) return;
     if (this.state === 'title') this.startRun(false);
     else if (this.state === 'play') this.tryJump();
@@ -284,7 +358,9 @@ class Game {
 
   private startRun(fresh: boolean): void {
     if (jstDateKey() !== this.save.missionKey) this.refreshDay();
-    if (fresh) this.sim = new Sim(this.seedFor(), this.viewH);
+    // A replay starts with the title-screen idle steps; keep that part short.
+    if (fresh || this.sim.tick > 240 * 120) this.sim = new Sim(this.seedFor(), this.viewH);
+    this.runStart = this.sim.tick;
     this.runSkips = 0;
     this.state = 'play';
     this.fx = new FX();
@@ -355,11 +431,9 @@ class Game {
     if (this.bot && this.state === 'title' && this.time > 1.2) this.startRun(false);
     if (this.bot && this.state === 'over' && this.overT > 3.2) this.startRun(true);
 
-    if (this.state === 'title' && this.sim.cat.planet) {
-      // On the title screen the cat "runs" on top while the planet spins under it.
-      this.sim.cat.local = -Math.PI / 2 - this.sim.cat.planet.angle;
-    }
-    this.sim.update(dt);
+    // On the title screen the cat "runs" on top while the planet spins under it.
+    this.sim.idle = this.state === 'title';
+    this.sim.advance(dt);
     this.handleEvents();
     if (this.sim.cat.state === 'fly') {
       const hue = (this.time * 400) % 360;
@@ -453,6 +527,13 @@ class Game {
           fx.burst(e.x, e.y, 20, ['#7af0ff', '#ffffff'], 320, { kind: 'spark', size: 3 });
         }
         fx.text(e.x + 46, e.y - 40, `+${e.pts}`, '#ffe45c', 20, 0.8);
+        if (e.p.rare) {
+          this.sound.zone();
+          fx.confetti(e.x, e.y, 40);
+          fx.text(e.x, e.y - 140, 'レア！にじ星 ★+3', '#ffffff', 24, 1.4);
+          vibrate([15, 30, 15]);
+          this.updateCoinsHud();
+        }
         this.bumpScore();
         this.checkRecordCelebration();
         break;
@@ -517,7 +598,13 @@ class Game {
     vibrate([30, 40, 60]);
     if (cause === 'miss') this.sound.fall();
     const c = this.sim.cat;
-    if (nearMiss) this.fx.text(c.x, c.y - 40, 'おしい！', '#ffb0d0', 30, 1.4);
+    if (nearMiss) {
+      // The cat is often already off screen by now: keep the text where players can read it.
+      const top = this.sim.camY;
+      const tx = Math.min(W - 110, Math.max(110, c.x));
+      const ty = Math.min(top + this.viewH * 0.8, Math.max(top + this.viewH * 0.3, c.y - 40));
+      this.fx.text(tx, ty, 'おしい！', '#ffb0d0', 34, 1.6);
+    }
     this.fx.shake(cause === 'miss' ? 0.25 : 0.4);
     this.finishRun(cause, nearMiss);
   }
@@ -575,7 +662,8 @@ class Game {
     const rival = this.activeRival();
     if (rival) {
       if (s.score <= rival.score) {
-        sub = `ライバル ${rival.score} まで あと${rival.score - s.score + 1}`;
+        const who = rival.name && [...rival.name].length <= 6 ? rival.name : 'ライバル';
+        sub = `${who} ${rival.score} まで あと${rival.score - s.score + 1}`;
         hot = rival.score - s.score <= 5;
       } else {
         sub = 'ライバル撃破！🎉';
@@ -652,13 +740,16 @@ class Game {
     const rb = $('rival');
     if (rival) {
       rb.innerHTML = '';
-      rb.append('ともだちのスコア ');
       const b = document.createElement('b');
       b.textContent = String(rival.score);
-      rb.append(b, ' をこえろ！（おなじコース）');
+      if (rival.name) {
+        const n = [...rival.name];
+        rb.append(`⚔️ ${n.length > 8 ? n.slice(0, 7).join('') + '…' : rival.name}の `, b, ' をこえろ！');
+      } else rb.append('ともだちのスコア ', b, ' をこえろ！（おなじコース）');
       rb.classList.remove('hidden');
     } else rb.classList.add('hidden');
     $('mission-count').textContent = `${this.save.missions.filter((m) => m.done).length}/${this.save.missions.length}`;
+    this.refreshRankChip();
     const can = this.save.coins >= GACHA_COST;
     $('gacha-dot').classList.toggle('hidden', !can);
     $('gacha-dot-2').classList.toggle('hidden', !can);
@@ -668,6 +759,7 @@ class Game {
 
   private finishRun(cause: string, nearMiss: boolean): void {
     const s = this.sim;
+    this.lastReplay = makeReplay(s, this.runStart);
     const sv = this.save;
     const today = jstDateKey();
     const prevBest = this.prevBest;
@@ -681,11 +773,14 @@ class Game {
         sv.dailyKey = today;
         sv.dailyBest = 0;
         sv.dailyPlays = 0;
+        sv.dailyBestIdx = 0;
       }
       sv.dailyPlays++;
       sv.dailyBest = Math.max(sv.dailyBest, s.score);
+      sv.dailyBestIdx = Math.max(sv.dailyBestIdx, s.maxIdx);
     } else {
       sv.best = Math.max(sv.best, s.score);
+      sv.bestIdx = Math.max(sv.bestIdx, s.maxIdx);
     }
     const scoreBonus = Math.floor(s.score / 10);
     let dailyBonus = 0;
@@ -713,6 +808,14 @@ class Game {
     sv.coins += earned;
     writeSave(sv);
 
+    const ss = this.session;
+    ss.plays++;
+    if (this.mode === 'daily') ss.daily_plays++;
+    ss.best = Math.max(ss.best, s.score);
+    if (ss.first_score === null) ss.first_score = s.score;
+    ss.total_score += s.score;
+    this.flushSession();
+
     this.lastResult = {
       score: s.score,
       best: Math.max(prevBest, s.score),
@@ -725,7 +828,10 @@ class Game {
       seed: s.seed,
       dailyKey: today,
       skin: this.skin,
+      name: this.save.name,
     };
+    const beaten = this.activeRival();
+    if (beaten && s.score > beaten.score) this.lastResult.beat = { name: beaten.name, score: beaten.score };
 
     let msg = cause === 'fuse' ? pick(FUSE_LINES) : cause === 'hazard' ? pick(HAZARD_LINES) : pick(MISS_LINES);
     if (nearMiss) msg = 'おしい！あとちょっとだった…！';
@@ -738,14 +844,14 @@ class Game {
     const rival = this.activeRival();
     const next = nextRank(s.score);
     let nextTxt = '';
-    if (rival) nextTxt = s.score > rival.score ? `ライバル（${rival.score}）に勝った！🎉` : `ライバル（${rival.score}）まで あと${rival.score - s.score + 1}！`;
+    const who = rival?.name ?? 'ライバル';
+    if (rival) nextTxt = s.score > rival.score ? `${who}（${rival.score}）に勝った！🎉` : `${who}（${rival.score}）まで あと${rival.score - s.score + 1}！`;
     else if (next) nextTxt = `つぎの称号まで あと${next.min - s.score}！`;
     $('res-next').textContent = nextTxt;
     $('res-perfect').textContent = String(s.perfects);
     $('res-combo').textContent = String(s.maxCombo);
     $('res-coins').textContent = `+${earned}`;
-    for (const id of ['btn-share-x', 'sheet-x']) $<HTMLAnchorElement>(id).href = xIntentUrl(this.lastResult);
-    for (const id of ['btn-share-line', 'sheet-line']) $<HTMLAnchorElement>(id).href = lineUrl(this.lastResult);
+    this.refreshShareLinks(this.lastResult);
     this.card = null;
     const res = this.lastResult;
     this.cardPromise = prepareCard(res).then((c) => {
@@ -762,6 +868,152 @@ class Game {
     const rm = $('res-mission');
     rm.textContent = lines.join('\n');
     rm.classList.toggle('hidden', lines.length === 0);
+    $('res-world').classList.toggle('hidden', this.mode !== 'daily');
+    if (this.mode === 'daily') void this.rankAfterRun(this.lastResult, this.lastReplay);
+  }
+
+  private refreshShareLinks(res: RunResult): void {
+    for (const id of ['btn-share-x', 'sheet-x']) $<HTMLAnchorElement>(id).href = xIntentUrl(res);
+    for (const id of ['btn-share-line', 'sheet-line']) $<HTMLAnchorElement>(id).href = lineUrl(res);
+  }
+
+  // ---------------------------------------------------------------- daily ranking
+
+  private worldLabel(r: { rank: number; total: number }): string {
+    return `🏆 全国 <b>${r.rank}</b>位 <small>/ ${r.total}人</small> ›`;
+  }
+
+  /** Send a new daily best to the ranking (or just look up our rank) after a daily run. */
+  private async rankAfterRun(res: RunResult, replay: Replay | null): Promise<void> {
+    const sv = this.save;
+    const day = res.dailyKey;
+    const el = $('res-world');
+    el.classList.add('wait');
+    el.textContent = '🏆 ランキングを確認中…';
+    if (sv.rankKey !== day) {
+      sv.rankKey = day;
+      sv.rankScore = -1;
+      sv.rankReplay = null;
+    }
+    let r: MyRank | null;
+    if (replay && res.score > sv.rankScore) {
+      const sub = await submitDaily(day, sv.playerId, sv.name, res.skin.id, replay);
+      if (sub && sv.rankKey === day) {
+        // Keep a replay the server accepted, so a rename can be sent without a new run.
+        if (sub.improved || !sv.rankReplay) sv.rankReplay = replay;
+        sv.rankScore = Math.max(sv.rankScore, sub.score);
+        writeSave(sv);
+      }
+      r = sub;
+    } else {
+      r = await dailyMe(day, sv.playerId);
+    }
+    if (this.lastResult !== res) return;
+    if (!r) {
+      el.textContent = '🏆 ランキングに つながりませんでした';
+      return;
+    }
+    this.myRank = { ...r, day };
+    this.rankAskedAt = Date.now();
+    el.classList.remove('wait');
+    el.innerHTML = this.worldLabel(r);
+    // Put the rank in the share text and on the card.
+    res.world = { rank: r.rank, total: r.total };
+    this.refreshShareLinks(res);
+    this.card = null;
+    this.cardPromise = prepareCard(res).then((c) => {
+      if (this.lastResult === res) this.card = c;
+      return c;
+    });
+  }
+
+  /** Title chip: today's rank (looked up at most once a minute). */
+  private refreshRankChip(): void {
+    const chip = $('title-rank');
+    const day = jstDateKey();
+    if (this.mode !== 'daily') {
+      chip.classList.add('hidden');
+      return;
+    }
+    chip.classList.remove('hidden');
+    const mine = this.myRank && this.myRank.day === day ? this.myRank : null;
+    chip.innerHTML = mine ? this.worldLabel(mine) : '🏆 きょうのランキング ›';
+    if (this.save.rankKey === day && this.save.rankScore >= 0 && Date.now() - this.rankAskedAt > 60_000) {
+      this.rankAskedAt = Date.now();
+      void dailyMe(day, this.save.playerId).then((r) => {
+        if (!r) return;
+        this.myRank = { ...r, day };
+        if (this.state === 'title') this.refreshRankChip();
+      });
+    }
+  }
+
+  private async openRanking(): Promise<void> {
+    this.sound.unlock();
+    this.sound.click();
+    const day = jstDateKey();
+    $('ranking-sub').textContent = `ステージ #${dailyNumber(day)}（${shortDate(day)}）・ 毎日0時に入れかわるよ`;
+    $<HTMLInputElement>('ranking-name').value = this.save.name;
+    const list = $('ranking-list');
+    list.innerHTML = '<li class="empty">よみこみ中…</li>';
+    $('ranking-me').textContent = '';
+    $('ranking').classList.remove('hidden');
+    const [top, me] = await Promise.all([dailyTop(day, 50), dailyMe(day, this.save.playerId)]);
+    if (!top) {
+      list.innerHTML = '<li class="empty">ランキングに つながりませんでした。<br>電波のいいところで もう一度ためしてね</li>';
+      return;
+    }
+    list.innerHTML = '';
+    if (!top.length) list.innerHTML = '<li class="empty">まだだれもいません。<br>一番乗りのチャンス！</li>';
+    const medal = ['🥇', '🥈', '🥉'];
+    for (const row of top) {
+      const li = document.createElement('li');
+      const isMe = !!me && row.rank === me.rank && row.score === me.score && row.name === this.save.name;
+      if (isMe) li.className = 'me';
+      const r = document.createElement('span');
+      r.className = 'r';
+      r.textContent = medal[row.rank - 1] ?? String(row.rank);
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = row.name;
+      const sc = document.createElement('span');
+      sc.className = 's';
+      sc.textContent = String(row.score);
+      li.append(r, n, sc);
+      list.append(li);
+    }
+    if (me) {
+      this.myRank = { ...me, day };
+      $('ranking-me').textContent = `あなたは ${me.rank}位（${me.total}人中）・ ベスト ${me.score}`;
+    } else {
+      $('ranking-me').textContent = 'きょうのステージを遊ぶと、ランキングにのるよ';
+    }
+  }
+
+  private async rename(): Promise<void> {
+    const input = $<HTMLInputElement>('ranking-name');
+    const name = cleanName(input.value);
+    if (!name) {
+      input.value = this.save.name;
+      return;
+    }
+    input.blur();
+    if (name === this.save.name) return;
+    this.sound.click();
+    this.save.name = name;
+    writeSave(this.save);
+    this.toast('なまえを変えたよ');
+    // The challenge link carries the name, so a share right after this uses the new one.
+    if (this.lastResult) {
+      this.lastResult.name = name;
+      this.refreshShareLinks(this.lastResult);
+    }
+    // Re-send today's best so the new name shows up right away.
+    const sv = this.save;
+    if (sv.rankReplay && sv.rankKey === jstDateKey()) {
+      await submitDaily(sv.rankKey, sv.playerId, name, this.skin.id, sv.rankReplay);
+      if (!$('ranking').classList.contains('hidden')) void this.openRanking();
+    }
   }
 
   private showResult(): void {
@@ -785,16 +1037,26 @@ class Game {
       if (k < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+    this.sound.countUp();
     if (this.lastResult?.isRecord) {
       this.sound.record();
       this.fx.confetti(W / 2, this.sim.camY + this.viewH * 0.1, 80);
+    } else {
+      this.sound.meow(0.95, 0.85);
     }
+    // Bring the music back for the next try (startRun keeps it going).
+    window.setTimeout(() => {
+      if (this.state !== 'over' || !this.sound.bgmOn) return;
+      this.sound.intensity = 0;
+      this.sound.startBgm();
+    }, 1100);
   }
 
   private async shareImg(): Promise<void> {
     const r = this.lastResult;
     if (!r) return;
     this.sound.click();
+    this.session.shares++;
     const ready = this.card;
     if (ready && canShareFile(ready.file)) {
       // Call share synchronously inside the tap so mobile browsers allow it.
@@ -960,6 +1222,7 @@ class Game {
     const machine = document.querySelector('.machine')!;
     machine.classList.add('shake');
     this.sound.gacha();
+    this.session.gacha++;
     setTimeout(() => {
       machine.classList.remove('shake');
       const rv = $('reveal');
@@ -1013,6 +1276,7 @@ class Game {
       guideLen: this.state === 'play' ? guideLen : 0,
       tutorial: this.tutorial && this.state === 'play',
       showCat: true,
+      bestIdx: this.state === 'title' ? 0 : this.bestIdxForMode(),
     });
     if (this.tutorial && this.state === 'play') this.scene.drawTutorialHint(ctx, s, aligned, this.time);
     ctx.restore();
