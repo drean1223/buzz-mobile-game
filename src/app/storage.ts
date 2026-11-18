@@ -19,6 +19,8 @@ export interface Save {
   tutorialDone: boolean;
   gachaCount: number;
   bestZone: number;
+  bestIdx: number;
+  dailyBestIdx: number;
   missionKey: string;
   missions: Mission[];
   missionAllClaimed: boolean;
@@ -43,6 +45,8 @@ const defaults: Save = {
   tutorialDone: false,
   gachaCount: 0,
   bestZone: 0,
+  bestIdx: 0,
+  dailyBestIdx: 0,
   missionKey: '',
   missions: [],
   missionAllClaimed: false,

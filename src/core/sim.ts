@@ -235,6 +235,10 @@ export class Sim {
       }
       this.fever = this.combo >= FEVER_COMBO;
       if (this.fever !== wasFever) this.events.push({ t: 'fever', on: this.fever });
+      if (p.rare) {
+        pts += 3;
+        this.coins += 3;
+      }
       this.score += pts;
       const z = zoneIndexFor(this.score);
       if (z > this.zone) {

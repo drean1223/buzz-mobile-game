@@ -162,6 +162,11 @@ class Game {
     return this.rival && this.rival.mode === this.mode ? this.rival : null;
   }
 
+  private bestIdxForMode(): number {
+    if (this.mode === 'daily') return this.save.dailyKey === jstDateKey() ? this.save.dailyBestIdx : 0;
+    return this.save.bestIdx;
+  }
+
   private bestForMode(): number {
     if (this.mode === 'daily') return this.save.dailyKey === jstDateKey() ? this.save.dailyBest : 0;
     return this.save.best;
@@ -453,6 +458,13 @@ class Game {
           fx.burst(e.x, e.y, 20, ['#7af0ff', '#ffffff'], 320, { kind: 'spark', size: 3 });
         }
         fx.text(e.x + 46, e.y - 40, `+${e.pts}`, '#ffe45c', 20, 0.8);
+        if (e.p.rare) {
+          this.sound.zone();
+          fx.confetti(e.x, e.y, 40);
+          fx.text(e.x, e.y - 140, 'レア！にじ星 ★+3', '#ffffff', 24, 1.4);
+          vibrate([15, 30, 15]);
+          this.updateCoinsHud();
+        }
         this.bumpScore();
         this.checkRecordCelebration();
         break;
@@ -681,11 +693,14 @@ class Game {
         sv.dailyKey = today;
         sv.dailyBest = 0;
         sv.dailyPlays = 0;
+        sv.dailyBestIdx = 0;
       }
       sv.dailyPlays++;
       sv.dailyBest = Math.max(sv.dailyBest, s.score);
+      sv.dailyBestIdx = Math.max(sv.dailyBestIdx, s.maxIdx);
     } else {
       sv.best = Math.max(sv.best, s.score);
+      sv.bestIdx = Math.max(sv.bestIdx, s.maxIdx);
     }
     const scoreBonus = Math.floor(s.score / 10);
     let dailyBonus = 0;
@@ -1013,6 +1028,7 @@ class Game {
       guideLen: this.state === 'play' ? guideLen : 0,
       tutorial: this.tutorial && this.state === 'play',
       showCat: true,
+      bestIdx: this.state === 'title' ? 0 : this.bestIdxForMode(),
     });
     if (this.tutorial && this.state === 'play') this.scene.drawTutorialHint(ctx, s, aligned, this.time);
     ctx.restore();

@@ -36,6 +36,8 @@ export interface Planet {
   fuseMax: number;
   craters: Crater[];
   style: number;
+  /** Rare rainbow planet: bonus points and stars. */
+  rare: boolean;
   alive: boolean;
   hazard: Hazard | null;
 }
@@ -145,6 +147,7 @@ export class Course {
       fuseMax: Infinity,
       craters,
       style: rng.int(0, 2),
+      rare: false,
       alive: true,
       hazard: null,
     };
@@ -249,6 +252,8 @@ export class Course {
           prev.fuseMax = Math.max(prev.fuseMax, (TAU / Math.abs(prev.omega0)) * 2.2 + 0.6);
         }
       }
+
+      if (i >= 8 && kind === 'normal' && !p.hazard && rng.chance(0.04)) p.rare = true;
 
       // Coins on the straight line between the planets reward center shots.
       if (i > 1 && rng.chance(0.55)) {

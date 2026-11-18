@@ -235,10 +235,16 @@ export class Scene {
     ctx.fill();
 
     // Body
-    const body = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
-    body.addColorStop(0, `hsl(${h}, ${sat + 15}%, 82%)`);
-    body.addColorStop(0.55, `hsl(${h}, ${sat}%, 63%)`);
-    body.addColorStop(1, `hsl(${h}, ${sat - 10}%, 42%)`);
+    let body: CanvasGradient;
+    if (p.rare) {
+      body = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
+      for (let i = 0; i <= 6; i++) body.addColorStop(i / 6, `hsl(${(i * 60 + time * 90) % 360}, 90%, 70%)`);
+    } else {
+      body = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+      body.addColorStop(0, `hsl(${h}, ${sat + 15}%, 82%)`);
+      body.addColorStop(0.55, `hsl(${h}, ${sat}%, 63%)`);
+      body.addColorStop(1, `hsl(${h}, ${sat - 10}%, 42%)`);
+    }
     ctx.fillStyle = body;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, TAU);
@@ -305,6 +311,17 @@ export class Scene {
       ctx.fill();
     }
 
+    if (p.rare) {
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 4; i++) {
+        const a = time * 1.5 + (i * TAU) / 4;
+        const tw = 0.5 + 0.5 * Math.sin(time * 6 + i);
+        ctx.globalAlpha = tw;
+        drawStar(ctx, x + Math.cos(a) * (r + 12), y + Math.sin(a) * (r + 12), 4 + tw * 3, a);
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // Kind markers
     if (p.kind === 'fast') {
       ctx.strokeStyle = 'rgba(255,170,190,0.75)';
@@ -355,6 +372,29 @@ export class Scene {
       ctx.arc(x, y, r + 9, -Math.PI / 2, -Math.PI / 2 + f * TAU);
       ctx.stroke();
     }
+  }
+
+  /** Where your best run ended: a goal to beat. */
+  drawBestMark(ctx: CanvasRenderingContext2D, p: Planet, time: number): void {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,214,70,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([7, 6]);
+    ctx.lineDashOffset = -time * 20;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r + 16, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 13px ${FONT}`;
+    const ty = p.y - p.r - 30 + Math.sin(time * 3) * 2;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(40,20,0,0.9)';
+    ctx.strokeText('👑 BEST', p.x, ty);
+    ctx.fillStyle = '#ffd646';
+    ctx.fillText('👑 BEST', p.x, ty);
+    ctx.restore();
   }
 
   drawHazard(ctx: CanvasRenderingContext2D, p: Planet, h: Hazard, time: number): void {
@@ -477,7 +517,7 @@ export class Scene {
     skin: Skin,
     look: CatLook,
     time: number,
-    opts: { guideLen: number; tutorial: boolean; showCat: boolean },
+    opts: { guideLen: number; tutorial: boolean; showCat: boolean; bestIdx: number },
   ): { aligned: boolean } {
     const c = sim.cat;
     const top = sim.camY - 80;
@@ -502,6 +542,7 @@ export class Scene {
     }
     for (const p of sim.course.planets) {
       if (p.alive && p.hazard && p.y > top - 80 && p.y < bottom + 80) this.drawHazard(ctx, p, p.hazard, time);
+      if (p.alive && opts.bestIdx > 0 && p.idx === opts.bestIdx && sim.maxIdx < opts.bestIdx) this.drawBestMark(ctx, p, time);
     }
     if (c.state === 'ground' && !sim.over && opts.guideLen > 0) {
       this.drawGuide(ctx, sim, opts.guideLen, opts.tutorial && aligned, time);
