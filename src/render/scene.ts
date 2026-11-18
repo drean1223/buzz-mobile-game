@@ -198,10 +198,24 @@ export class Scene {
     }
   }
 
+  private bumps = new Map<Planet, number>();
+
+  /** Make a planet wobble like jelly when the cat lands on it. */
+  bump(p: Planet, time: number): void {
+    this.bumps.set(p, time);
+  }
+
   drawPlanet(ctx: CanvasRenderingContext2D, p: Planet, time: number, fuseFrac: number | null, aimed: boolean): void {
     let x = p.x;
     let y = p.y;
-    const r = p.r;
+    let k = 1;
+    const b = this.bumps.get(p);
+    if (b !== undefined) {
+      const a = time - b;
+      if (a > 0.7) this.bumps.delete(p);
+      else k = 1 - 0.07 * Math.exp(-a * 7) * Math.cos(a * 26);
+    }
+    const r = p.r * k;
     const danger = fuseFrac !== null && fuseFrac < 0.3;
     if (danger) {
       const amt = (0.3 - fuseFrac!) * 10;

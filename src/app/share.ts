@@ -268,34 +268,40 @@ function canvasToBlob(cv: HTMLCanvasElement): Promise<Blob | null> {
   return new Promise((res) => cv.toBlob((b) => res(b), 'image/png'));
 }
 
-export type ShareOutcome = 'shared' | 'downloaded' | 'cancelled' | 'failed';
+export interface PreparedCard {
+  dataUrl: string;
+  file: File | null;
+}
 
-export async function shareImage(r: RunResult, card?: HTMLCanvasElement): Promise<ShareOutcome> {
+/** Render the card ahead of time so the share button can call navigator.share right inside the tap. */
+export async function prepareCard(r: RunResult): Promise<PreparedCard> {
+  const cv = await makeShareCard(r);
+  const blob = await canvasToBlob(cv);
+  return {
+    dataUrl: cv.toDataURL('image/png'),
+    file: blob ? new File([blob], `hoshineko-${r.score}.png`, { type: 'image/png' }) : null,
+  };
+}
+
+type ShareNav = { share?: (d: ShareData) => Promise<void>; canShare?: (d: ShareData) => boolean };
+
+export function canShareFile(file: File | null): boolean {
+  const nav = navigator as unknown as ShareNav;
   try {
-    const cv = card ?? (await makeShareCard(r));
-    const blob = await canvasToBlob(cv);
-    if (!blob) return 'failed';
-    const file = new File([blob], `hoshineko-${r.score}.png`, { type: 'image/png' });
-    const text = shareText(r) + '\n' + challengeUrl(r);
-    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-    if (nav.share && nav.canShare && nav.canShare({ files: [file] })) {
-      try {
-        await nav.share({ files: [file], text });
-        return 'shared';
-      } catch (e) {
-        if ((e as Error).name === 'AbortError') return 'cancelled';
-      }
-    }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = file.name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    return 'downloaded';
+    return !!(file && nav.share && nav.canShare && nav.canShare({ files: [file] }));
   } catch {
-    return 'failed';
+    return false;
+  }
+}
+
+export type ShareOutcome = 'shared' | 'cancelled' | 'failed';
+
+export async function shareFile(r: RunResult, file: File): Promise<ShareOutcome> {
+  try {
+    await navigator.share({ files: [file], text: shareText(r) + '\n' + challengeUrl(r) });
+    return 'shared';
+  } catch (e) {
+    return (e as Error).name === 'AbortError' ? 'cancelled' : 'failed';
   }
 }
 

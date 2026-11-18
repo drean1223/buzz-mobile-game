@@ -24,7 +24,8 @@ await page.evaluate(() => { window.__game.bot = false; });
 for (let i = 0; i < 40; i++) {
   const st = await page.evaluate(() => window.__game.state);
   if (st === 'over') break;
-  await page.waitForTimeout(500);
+  await page.touchscreen.tap(195, 300);
+  await page.waitForTimeout(700);
 }
 await page.waitForTimeout(400);
 await page.screenshot({ path: `${out}/4-dying.png` });

@@ -64,6 +64,7 @@
 
       <section id="result" class="screen hidden">
         <div class="res-card">
+          <canvas id="res-cat" class="res-cat" width="240" height="150" aria-hidden="true"></canvas>
           <div id="res-msg" class="res-msg"></div>
           <div class="res-label">SCORE</div>
           <div id="res-score" class="res-score">0</div>
@@ -123,6 +124,19 @@
             <button id="reveal-equip" class="btn btn-main">この子にする</button>
             <button id="reveal-close" class="btn btn-sub">とじる</button>
           </div>
+        </div>
+      </div>
+
+      <div id="sheet" class="sheet hidden">
+        <div class="sheet-card">
+          <img id="sheet-img" class="sheet-img" alt="結果画像" />
+          <p class="sheet-hint">画像を長押しして保存 → SNSに貼ってね</p>
+          <div class="share-row">
+            <button id="sheet-copy" class="btn btn-share">📋 文章をコピー</button>
+            <a id="sheet-x" class="btn btn-x" aria-label="Xでポスト" href="https://twitter.com/" target="_blank" rel="noopener">𝕏</a>
+            <a id="sheet-line" class="btn btn-line" aria-label="LINEで送る" href="https://line.me/" target="_blank" rel="noopener">LINE</a>
+          </div>
+          <button id="sheet-close" class="btn btn-sub">とじる</button>
         </div>
       </div>
 

@@ -137,12 +137,15 @@ export class FX {
     this.texts.push({ x, y, text, color, size, life, max: life, vy: -60, stroke });
   }
 
+  /** 1 normally, smaller when the player asked the OS for reduced motion. */
+  motion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.25 : 1;
+
   shake(amount: number): void {
-    this.trauma = Math.min(1, this.trauma + amount);
+    this.trauma = Math.min(1, this.trauma + amount * this.motion);
   }
 
   doFlash(alpha: number, rgb = '255,255,255'): void {
-    this.flash = Math.max(this.flash, alpha);
+    this.flash = Math.max(this.flash, alpha * this.motion);
     this.flashColor = rgb;
   }
 

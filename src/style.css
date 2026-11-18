@@ -357,6 +357,7 @@ button {
   gap: 6px;
   text-decoration: none;
   color: inherit;
+  white-space: nowrap;
   min-height: 52px;
   padding: 10px 14px;
   border-radius: 18px;
@@ -419,8 +420,10 @@ button {
 #result {
   background: rgba(6, 3, 22, 0.55);
   backdrop-filter: blur(3px);
-  justify-content: center;
+  justify-content: safe center;
   gap: 12px;
+  overflow-y: auto;
+  touch-action: pan-y;
 }
 #result.show .res-card {
   animation: popin 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both;
@@ -859,6 +862,51 @@ button {
   width: 260px;
 }
 
+/* ---------- Share sheet ---------- */
+.sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
+  background: rgba(5, 2, 20, 0.82);
+  backdrop-filter: blur(4px);
+}
+.sheet-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  animation: popin 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.sheet-img {
+  width: auto;
+  max-width: 100%;
+  max-height: calc(var(--app-h) - 230px);
+  border-radius: 18px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  -webkit-touch-callout: default;
+  -webkit-user-select: auto;
+  user-select: auto;
+  pointer-events: auto;
+}
+.sheet-hint {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 900;
+}
+.sheet .btn-sub {
+  width: 100%;
+}
+.res-cat {
+  display: block;
+  width: 120px;
+  height: 75px;
+  margin: -6px auto -4px;
+}
+
 /* ---------- Toast ---------- */
 .toast {
   position: absolute;
@@ -882,21 +930,67 @@ button {
   transform: translateX(-50%) translateY(0);
 }
 
-@media (max-height: 640px) {
-  .logo-1 {
-    font-size: 46px;
+@media (max-height: 700px) {
+  .res-cat {
+    display: none;
   }
-  .logo-2 {
-    font-size: 52px;
+  #result {
+    gap: 9px;
+  }
+  .res-card {
+    padding: 12px 12px 10px;
   }
   .res-score {
-    font-size: 64px;
+    font-size: 66px;
+  }
+}
+@media (max-height: 620px) {
+  .logo-1 {
+    font-size: 44px;
+  }
+  .logo-2 {
+    font-size: 50px;
+  }
+  .res-score {
+    font-size: 54px;
+  }
+  .res-label {
+    display: none;
   }
   .btn-main {
-    min-height: 56px;
-    font-size: 22px;
+    min-height: 52px;
+    font-size: 21px;
+  }
+  .btn {
+    min-height: 44px;
   }
   .res-rank {
+    margin-top: 6px;
     padding: 6px;
+  }
+  .res-rank-name {
+    font-size: 17px;
+  }
+  .res-stats {
+    margin-top: 6px;
+  }
+  .res-stats b {
+    font-size: 18px;
+  }
+  .tagline {
+    margin-top: 6px;
+  }
+}
+@media (max-width: 360px) {
+  .btn {
+    font-size: 14px;
+    padding: 8px 10px;
+  }
+  .btn-x {
+    width: 50px;
+  }
+  .btn-line {
+    width: 56px;
+    font-size: 12px;
   }
 }

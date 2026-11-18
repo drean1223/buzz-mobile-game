@@ -14,8 +14,8 @@ import { Sound } from './app/audio.ts';
 import { loadSave, writeSave } from './app/storage.ts';
 import type { Save } from './app/storage.ts';
 import { rollGacha, GACHA_COST, DUPLICATE_REFUND } from './app/gacha.ts';
-import { shareImage, xIntentUrl, lineUrl, baseUrl, makeShareCard, GAME_NAME, HASHTAG } from './app/share.ts';
-import type { RunResult } from './app/share.ts';
+import { xIntentUrl, lineUrl, baseUrl, makeShareCard, prepareCard, canShareFile, shareFile, shareText, challengeUrl, copyText, GAME_NAME, HASHTAG } from './app/share.ts';
+import type { RunResult, PreparedCard } from './app/share.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -80,6 +80,8 @@ class Game {
   private botPlanet = -1;
   private revealing = false;
   private revealSkin: Skin | null = null;
+  private card: PreparedCard | null = null;
+  private cardPromise: Promise<PreparedCard> | null = null;
 
   constructor() {
     this.skin = skinById(this.save.skin);
@@ -207,19 +209,32 @@ class Game {
       this.closeReveal();
     });
     $('reveal-close').addEventListener('click', () => this.closeReveal());
+    $('sheet-close').addEventListener('click', () => {
+      this.sound.click();
+      $('sheet').classList.add('hidden');
+    });
+    $('sheet-copy').addEventListener('click', async () => {
+      if (!this.lastResult) return;
+      const ok = await copyText(shareText(this.lastResult) + '\n' + challengeUrl(this.lastResult));
+      this.toast(ok ? 'コピーしたよ！SNSに貼ってね' : 'コピーできなかった…');
+    });
+    // iOS sometimes only unlocks audio on touchend/click.
+    const unlock = () => this.sound.unlock();
+    window.addEventListener('touchend', unlock, { passive: true });
+    window.addEventListener('click', unlock);
   }
 
   private onPointer(e: PointerEvent): void {
     const t = e.target as HTMLElement;
     this.sound.unlock();
-    if (t.closest('button, #gacha, #reveal, #result')) return;
+    if (t.closest('button, a, #gacha, #reveal, #result, #sheet')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     this.onAction();
   }
 
   private onAction(): void {
     this.sound.unlock();
-    if (!$('gacha').classList.contains('hidden') || this.revealing) return;
+    if (!$('gacha').classList.contains('hidden') || !$('sheet').classList.contains('hidden') || this.revealing) return;
     if (this.state === 'title') this.startRun(false);
     else if (this.state === 'play') this.tryJump();
     else if (this.state === 'over' && this.resultShown && this.overT > 1.6) this.retry();
@@ -368,6 +383,7 @@ class Game {
         break;
       }
       case 'land': {
+        this.scene.bump(e.p, this.time);
         this.look.squash = 0.34;
         this.look.squashV = 0;
         const col = `hsl(${e.p.hue},85%,72%)`;
@@ -682,8 +698,14 @@ class Game {
     $('res-perfect').textContent = String(s.perfects);
     $('res-combo').textContent = String(s.maxCombo);
     $('res-coins').textContent = `+${earned}`;
-    $<HTMLAnchorElement>('btn-share-x').href = xIntentUrl(this.lastResult);
-    $<HTMLAnchorElement>('btn-share-line').href = lineUrl(this.lastResult);
+    for (const id of ['btn-share-x', 'sheet-x']) $<HTMLAnchorElement>(id).href = xIntentUrl(this.lastResult);
+    for (const id of ['btn-share-line', 'sheet-line']) $<HTMLAnchorElement>(id).href = lineUrl(this.lastResult);
+    this.card = null;
+    const res = this.lastResult;
+    this.cardPromise = prepareCard(res).then((c) => {
+      if (this.lastResult === res) this.card = c;
+      return c;
+    });
     if (dailyBonus) setTimeout(() => this.toast(`ログインボーナス ★+${dailyBonus}`), 1400);
   }
 
@@ -697,6 +719,7 @@ class Game {
     r.classList.add('show');
     const can = this.save.coins >= GACHA_COST;
     $('gacha-dot-2').classList.toggle('hidden', !can);
+    this.drawResultCat();
     // Count-up
     const target = this.lastResult?.score ?? 0;
     const el = $('res-score');
@@ -714,14 +737,50 @@ class Game {
   }
 
   private async shareImg(): Promise<void> {
-    if (!this.lastResult) return;
+    const r = this.lastResult;
+    if (!r) return;
     this.sound.click();
+    const ready = this.card;
+    if (ready && canShareFile(ready.file)) {
+      // Call share synchronously inside the tap so mobile browsers allow it.
+      const out = await shareFile(r, ready.file!);
+      if (out !== 'failed') return;
+    }
     const btn = $<HTMLButtonElement>('btn-share-img');
     btn.disabled = true;
-    const out = await shareImage(this.lastResult);
-    btn.disabled = false;
-    if (out === 'downloaded') this.toast('画像を保存したよ！SNSにはってね📸');
-    else if (out === 'failed') this.toast('ごめん、シェアできなかった…');
+    try {
+      const card = ready ?? (await (this.cardPromise ?? prepareCard(r)));
+      this.openSheet(card);
+    } catch {
+      this.toast('ごめん、画像をつくれなかった…');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  private openSheet(card: PreparedCard): void {
+    $<HTMLImageElement>('sheet-img').src = card.dataUrl;
+    $('sheet').classList.remove('hidden');
+  }
+
+  private drawResultCat(): void {
+    const cv = $<HTMLCanvasElement>('res-cat');
+    const c = cv.getContext('2d')!;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, cv.width, cv.height);
+    const r = this.lastResult;
+    const happy = !!r && (r.isRecord || r.score >= 25);
+    // little planet
+    const g = c.createRadialGradient(100, 150, 10, 120, 190, 110);
+    g.addColorStop(0, '#d9b8ff');
+    g.addColorStop(1, '#5a3aa8');
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(120, 205, 90, 0, Math.PI * 2);
+    c.fill();
+    c.translate(120, 118);
+    c.scale(2.6, 2.6);
+    drawCat(c, this.skin, { face: happy ? 'happy' : 'blank', t: 0.5, sx: 1, sy: 1 });
   }
 
   private async shareGame(): Promise<void> {
