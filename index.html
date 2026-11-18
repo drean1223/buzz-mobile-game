@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>ほしねこジャンプ</title>
+    <meta name="description" content="回る星から星へ、タップでとびうつれ！1タップで遊べる宇宙ねこジャンプゲーム。PERFECT着地でコンボ、ねこガチャ、きょうのステージで友だちと勝負。" />
+    <meta name="theme-color" content="#0a0d2c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ほしねこ" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ほしねこジャンプ 🐱🪐" />
+    <meta property="og:description" content="回る星から星へ、タップでとびうつれ！きみは何コまでいける？" />
+    <meta property="og:url" content="https://drean1223.github.io/buzz-mobile-game/" />
+    <meta property="og:image" content="https://drean1223.github.io/buzz-mobile-game/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ほしねこジャンプ 🐱🪐" />
+    <meta name="twitter:description" content="回る星から星へ、タップでとびうつれ！きみは何コまでいける？" />
+    <meta name="twitter:image" content="https://drean1223.github.io/buzz-mobile-game/og.png" />
+    <link rel="icon" type="image/png" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;900&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game" aria-label="ゲーム画面"></canvas>
+
+      <div id="hud" class="hidden">
+        <button id="hud-sound" class="icon-btn" aria-label="サウンド切りかえ">🔊</button>
+        <div id="hud-center">
+          <div id="hud-score">0</div>
+          <div id="hud-sub"></div>
+        </div>
+        <div id="hud-coins"><span class="star">★</span><span id="hud-coin-n">0</span></div>
+      </div>
+
+      <div id="banner" class="banner"></div>
+
+      <section id="title" class="screen">
+        <div class="title-top">
+          <div id="title-coins" class="coin-pill"><span class="star">★</span><span>0</span></div>
+          <div class="title-icons">
+            <button id="btn-share-game" class="icon-btn" aria-label="ゲームを友だちに教える">📣</button>
+            <button id="title-sound" class="icon-btn" aria-label="サウンド切りかえ">🔊</button>
+          </div>
+        </div>
+        <h1 class="logo"><span class="logo-1">ほしねこ</span><span class="logo-2">ジャンプ</span></h1>
+        <p class="tagline">まわる星から星へ、タップでとべ！</p>
+        <div id="rival" class="rival hidden"></div>
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-mode="endless" role="tab">エンドレス</button>
+          <button class="tab" data-mode="daily" role="tab">きょうのステージ<small id="daily-no"></small></button>
+        </div>
+        <div id="title-best" class="title-best">BEST 0</div>
+        <div class="spacer"></div>
+        <div class="tap-start">タップでスタート</div>
+        <div class="title-bottom">
+          <button id="btn-gacha" class="btn btn-sub"><span>🐱 ねこガチャ</span><i id="gacha-dot" class="dot hidden"></i></button>
+          <button id="btn-missions" class="btn btn-sub"><span>📋 ミッション <b id="mission-count">0/3</b></span></button>
+        </div>
+      </section>
+
+      <section id="result" class="screen hidden">
+        <div class="res-card">
+          <canvas id="res-cat" class="res-cat" width="240" height="150" aria-hidden="true"></canvas>
+          <div id="res-msg" class="res-msg"></div>
+          <div class="res-label">SCORE</div>
+          <div id="res-score" class="res-score">0</div>
+          <div id="res-record" class="res-record hidden">自己ベスト更新！</div>
+          <div id="res-best" class="res-best">BEST 0</div>
+          <div class="res-rank">
+            <div class="res-rank-label">称号</div>
+            <div id="res-rank-name" class="res-rank-name"></div>
+            <div id="res-rank-comment" class="res-rank-comment"></div>
+          </div>
+          <div id="res-next" class="res-next"></div>
+          <div id="res-mission" class="res-mission hidden"></div>
+          <div class="res-stats">
+            <div><b id="res-perfect">0</b><span>PERFECT</span></div>
+            <div><b id="res-combo">0</b><span>最大コンボ</span></div>
+            <div><b id="res-coins">+0</b><span>★ゲット</span></div>
+          </div>
+        </div>
+        <button id="btn-retry" class="btn btn-main">もう1回！</button>
+        <div class="share-row">
+          <button id="btn-share-img" class="btn btn-share">📸 画像でシェア</button>
+          <a id="btn-share-x" class="btn btn-x" aria-label="Xでポスト" href="https://twitter.com/" target="_blank" rel="noopener">𝕏</a>
+          <a id="btn-share-line" class="btn btn-line" aria-label="LINEで送る" href="https://line.me/" target="_blank" rel="noopener">LINE</a>
+        </div>
+        <div class="res-bottom">
+          <button id="btn-home" class="btn btn-sub">🏠 ホーム</button>
+          <button id="btn-res-gacha" class="btn btn-sub"><span>🐱 ガチャ</span><i id="gacha-dot-2" class="dot hidden"></i></button>
+        </div>
+      </section>
+
+      <section id="gacha" class="screen hidden">
+        <div class="gacha-head">
+          <button id="gacha-close" class="icon-btn" aria-label="とじる">✕</button>
+          <h2>ねこガチャ</h2>
+          <div id="gacha-coins" class="coin-pill"><span class="star">★</span><span>0</span></div>
+        </div>
+        <div class="machine">
+          <div class="machine-dome">
+            <span class="ball b1"></span><span class="ball b2"></span><span class="ball b3"></span><span class="ball b4"></span><span class="ball b5"></span>
+          </div>
+          <div class="machine-body"><div class="machine-knob"></div></div>
+        </div>
+        <button id="gacha-pull" class="btn btn-main">まわす（★30）</button>
+        <p class="gacha-note">★は星のあいだのスターや、スコアでもらえるよ</p>
+        <div id="collection" class="collection"></div>
+        <p id="collection-count" class="gacha-note"></p>
+      </section>
+
+      <div id="reveal" class="reveal hidden">
+        <div class="reveal-rays"></div>
+        <div class="capsule"><div class="cap-top"></div><div class="cap-bottom"></div></div>
+        <div class="reveal-body">
+          <div id="reveal-stars" class="reveal-stars"></div>
+          <canvas id="reveal-cat" width="320" height="320"></canvas>
+          <div id="reveal-name" class="reveal-name"></div>
+          <div id="reveal-tag" class="reveal-tag"></div>
+          <div class="reveal-btns">
+            <button id="reveal-equip" class="btn btn-main">この子にする</button>
+            <button id="reveal-close" class="btn btn-sub">とじる</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="missions" class="sheet hidden">
+        <div class="sheet-card missions-card">
+          <h2>きょうのミッション</h2>
+          <div id="mission-list" class="mission-list"></div>
+          <p id="mission-bonus" class="mission-bonus"></p>
+          <p id="mission-streak" class="mission-streak"></p>
+          <button id="missions-close" class="btn btn-sub">とじる</button>
+        </div>
+      </div>
+
+      <div id="sheet" class="sheet hidden">
+        <div class="sheet-card">
+          <img id="sheet-img" class="sheet-img" alt="結果画像" />
+          <p class="sheet-hint">画像を長押しして保存 → SNSに貼ってね</p>
+          <div class="share-row">
+            <button id="sheet-copy" class="btn btn-share">📋 文章をコピー</button>
+            <a id="sheet-x" class="btn btn-x" aria-label="Xでポスト" href="https://twitter.com/" target="_blank" rel="noopener">𝕏</a>
+            <a id="sheet-line" class="btn btn-line" aria-label="LINEで送る" href="https://line.me/" target="_blank" rel="noopener">LINE</a>
+          </div>
+          <button id="sheet-close" class="btn btn-sub">とじる</button>
+        </div>
+      </div>
+
+      <div id="toast" class="toast"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
