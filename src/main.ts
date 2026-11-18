@@ -529,7 +529,13 @@ class Game {
     vibrate([30, 40, 60]);
     if (cause === 'miss') this.sound.fall();
     const c = this.sim.cat;
-    if (nearMiss) this.fx.text(c.x, c.y - 40, 'おしい！', '#ffb0d0', 30, 1.4);
+    if (nearMiss) {
+      // The cat is often already off screen by now: keep the text where players can read it.
+      const top = this.sim.camY;
+      const tx = Math.min(W - 110, Math.max(110, c.x));
+      const ty = Math.min(top + this.viewH * 0.8, Math.max(top + this.viewH * 0.3, c.y - 40));
+      this.fx.text(tx, ty, 'おしい！', '#ffb0d0', 34, 1.6);
+    }
     this.fx.shake(cause === 'miss' ? 0.25 : 0.4);
     this.finishRun(cause, nearMiss);
   }
@@ -800,10 +806,19 @@ class Game {
       if (k < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+    this.sound.countUp();
     if (this.lastResult?.isRecord) {
       this.sound.record();
       this.fx.confetti(W / 2, this.sim.camY + this.viewH * 0.1, 80);
+    } else {
+      this.sound.meow(0.95, 0.85);
     }
+    // Bring the music back for the next try (startRun keeps it going).
+    window.setTimeout(() => {
+      if (this.state !== 'over' || !this.sound.bgmOn) return;
+      this.sound.intensity = 0;
+      this.sound.startBgm();
+    }, 1100);
   }
 
   private async shareImg(): Promise<void> {

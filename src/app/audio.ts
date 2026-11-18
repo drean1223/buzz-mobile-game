@@ -218,6 +218,12 @@ export class Sound {
     [0, 4, 7, 12, 7, 12, 16, 19, 24].forEach((s, i) => this.tone(note(s), 0.35, { type: 'triangle', vol: 0.11, at: i * 0.09, echo: true }));
   }
 
+  /** Score count-up on the result card: quick rising blips, then a chime. */
+  countUp(): void {
+    for (let i = 0; i < 9; i++) this.tone(note(SCALE[i]), 0.05, { type: 'square', vol: 0.03, at: i * 0.07 });
+    this.tone(note(24), 0.45, { type: 'triangle', vol: 0.11, at: 0.66, echo: true });
+  }
+
   gacha(): void {
     for (let i = 0; i < 14; i++) this.tone(note(i % 2 === 0 ? 0 : 7) * (1 + i * 0.03), 0.06, { type: 'square', vol: 0.04, at: i * 0.07 });
   }

@@ -33,7 +33,11 @@ npm run dev        # http://localhost:5173
 npm run build      # dist/ に出力
 npm run sim        # ボットで難易度チェック: npm run sim -- <タイミング誤差秒> <回数>
 npm run assets     # アイコンとOGP画像を再生成（dev サーバー起動中に）
+node tools/clip.cjs dry                # 宣伝動画の段取り確認（どの星で何が起きるか）
+node tools/clip.cjs render out.mp4     # 宣伝用の縦動画（1080×1920・60fps・ゲーム音入り）
 ```
+
+`tools/clip.cjs` はページの時計をコマ送りにして1コマずつ撮るので、重い環境でもカクつかず、効果音もずれません。
 
 - `?bot=1` を付けると自動プレイ（デモ・動画撮影用）、`?debug=1` で `window.__game` が使えます。
 - 技術: TypeScript + Vite + Canvas 2D（ライブラリなし、JS約24KB gzip）。音はすべて WebAudio で合成。
